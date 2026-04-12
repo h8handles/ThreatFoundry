@@ -1,0 +1,27 @@
+from django.urls import path
+
+from intel.views import (
+    dashboard_view,
+    documentation_view,
+    ioc_blade_detail_view,
+    ioc_detail_view,
+    malware_family_view,
+    set_time_display_view,
+)
+from intel.views_chat import analyst_chat_api_view, analyst_chat_view
+
+
+app_name = "intel"
+
+urlpatterns = [
+    path("", dashboard_view, name="dashboard"),
+    path("dashboard/", dashboard_view, name="dashboard_alias"),
+    path("assistant/", analyst_chat_view, name="analyst_chat"),
+    path("api/assistant/chat/", analyst_chat_api_view, name="analyst_chat_api"),
+    path("docs/", documentation_view, name="documentation"),
+    path("docs/<str:doc_name>/", documentation_view, name="documentation_doc"),
+    path("malware/", malware_family_view, name="malware_family"),
+    path("settings/time-display/", set_time_display_view, name="set_time_display"),
+    path("ioc-blade/", ioc_blade_detail_view, name="ioc_blade_detail"),
+    path("ioc/<int:pk>/", ioc_detail_view, name="ioc_detail"),
+]

@@ -1,0 +1,44 @@
+<svg width="220" height="220" viewBox="0 0 220 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="shieldStroke" x1="43" y1="28" x2="177" y2="192" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7BC8FF"/>
+      <stop offset="0.55" stop-color="#2EC9FF"/>
+      <stop offset="1" stop-color="#123F72"/>
+    </linearGradient>
+    <linearGradient id="shieldFill" x1="45" y1="32" x2="180" y2="188" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#163562"/>
+      <stop offset="0.6" stop-color="#0A1B35"/>
+      <stop offset="1" stop-color="#071225"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="76" y1="68" x2="150" y2="148" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9BE8FF"/>
+      <stop offset="0.45" stop-color="#38D6FF"/>
+      <stop offset="1" stop-color="#0AA2E6"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="83" y1="70" x2="135" y2="111" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EEF5FF"/>
+      <stop offset="0.45" stop-color="#8EA8CC"/>
+      <stop offset="1" stop-color="#4E678B"/>
+    </linearGradient>
+    <filter id="softGlow" x="0" y="0" width="220" height="220" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.05 0 0 0 0 0.78 0 0 0 0 1 0 0 0 0.32 0"/>
+    </filter>
+  </defs>
+
+  <circle cx="112" cy="110" r="66" fill="#0D2747" opacity="0.35"/>
+  <path d="M48 49L110 28L172 49V109C172 145 146 176 110 192C74 176 48 145 48 109V49Z" fill="url(#shieldFill)"/>
+  <path d="M48 49L110 28L172 49V109C172 145 146 176 110 192C74 176 48 145 48 109V49Z" stroke="url(#shieldStroke)" stroke-width="6"/>
+
+  <g filter="url(#softGlow)">
+    <path d="M82 112H148" stroke="#43DBFF" stroke-width="7" stroke-linecap="round"/>
+    <path d="M84 112L102 95L112 103L126 81" stroke="#A5F5FF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <path d="M72 117H148L140 126H80L72 117Z" fill="url(#metal)" stroke="#5A789A" stroke-width="2"/>
+  <path d="M103 126H118V147C118 151 124 154 134 156C124 157 117 160 112 165C106 159 98 156 88 156C98 154 103 151 103 147V126Z" fill="#0C1E39" stroke="#24496F" stroke-width="2"/>
+  <path d="M128 83L151 73L157 93L137 103L128 83Z" fill="url(#metal)" stroke="#5A789A" stroke-width="2"/>
+  <path d="M102 74L128 63L135 85L111 96L102 74Z" fill="url(#metal)" stroke="#5A789A" stroke-width="2"/>
+  <path d="M108 54C117 45 121 36 120 28C133 37 136 49 130 64C126 76 120 87 117 99C106 92 101 83 102 71C103 64 105 59 108 54Z" fill="url(#glow)"/>
+  <path d="M108 54C117 45 121 36 120 28C133 37 136 49 130 64C126 76 120 87 117 99C106 92 101 83 102 71C103 64 105 59 108 54Z" stroke="#9BE8FF" stroke-width="2"/>
+</svg>

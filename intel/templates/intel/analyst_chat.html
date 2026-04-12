@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}ThreatFoundry | Analyst Chat{% endblock %}
+
+{% block content %}
+{{ chat_bootstrap|json_script:"analyst-chat-bootstrap" }}
+
+<section class="panel assistant-page-panel">
+    <div class="panel-header">
+        <div>
+            <p class="eyebrow">Analyst Assistant</p>
+            <h1>IOC Analyst Chat</h1>
+        </div>
+        <a class="ghost-link" href="{% url 'intel:dashboard' %}">Back to dashboard</a>
+    </div>
+    <div class="assistant-page-copy">
+        <p class="muted">
+            Ask broad or narrow IOC questions. The database is the primary source of truth, and the backend can hand off the same analyst context to n8n when your webhook is configured.
+        </p>
+        {% if scope_badges %}
+            <div class="chip-row assistant-scope-chips">
+                {% for badge in scope_badges %}
+                    <span class="chip">{{ badge.label }}: {{ badge.value }}</span>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </div>
+</section>
+
+<section class="assistant-layout">
+    <aside class="panel assistant-sidebar">
+        <div class="panel-header">
+            <div>
+                <p class="eyebrow">Prompt Ideas</p>
+                <h2>Analyst Tasks</h2>
+            </div>
+        </div>
+        <div class="assistant-sidebar-body">
+            <div class="chip-row assistant-prompt-grid" id="assistant-prompt-grid"></div>
+            <div class="assistant-note-block">
+                <p class="section-title">Behavior</p>
+                <p class="muted">
+                    This assistant supports analyst, executive, technical, and brief outputs. It is not limited to one summary mode.
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    <section class="panel assistant-chat-panel">
+        <div class="panel-header">
+            <div>
+                <p class="eyebrow">Conversation</p>
+                <h2>Ask The IOC Database</h2>
+            </div>
+        </div>
+        <div class="assistant-thread" id="assistant-thread"></div>
+        <form class="assistant-form" id="assistant-chat-form">
+            <div class="assistant-form-row">
+                <label for="assistant-summary-mode">Output mode</label>
+                <select id="assistant-summary-mode" name="summary_mode">
+                    <option value="auto">Auto</option>
+                    <option value="analyst">Analyst</option>
+                    <option value="executive">Executive</option>
+                    <option value="technical">Technical</option>
+                    <option value="brief">Brief</option>
+                </select>
+            </div>
+            <label for="assistant-chat-input">Question</label>
+            <textarea
+                id="assistant-chat-input"
+                name="prompt"
+                rows="4"
+                maxlength="2500"
+                placeholder="Ask about a specific IOC, suspicious sources, clusters, enrichment, confidence, or what should be investigated first."
+                required
+            ></textarea>
+            <div class="assistant-form-actions">
+                <span class="chat-status" id="assistant-chat-status">Ready</span>
+                <button class="primary-button assistant-send-button" type="submit">Ask analyst chat</button>
+            </div>
+        </form>
+    </section>
+</section>
+{% endblock %}
+
+{% block page_scripts %}
+    {{ block.super }}
+    <script src="{% static 'intel/analyst_chat.js' %}" defer></script>
+{% endblock %}

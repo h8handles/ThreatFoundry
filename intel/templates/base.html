@@ -1,0 +1,52 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}ThreatFoundry{% endblock %}</title>
+    <meta name="theme-color" content="#081528">
+    <link rel="stylesheet" href="{% static 'intel/dashboard.css' %}">
+    <link rel="icon" type="image/svg+xml" href="{% static 'intel/threatfoundry-mark.svg' %}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
+    <script src="{% static 'intel/dashboard.js' %}" defer></script>
+    {% block page_scripts %}{% endblock %}
+</head>
+<body>
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="brand-lockup">
+                <img class="brand-mark" src="{% static 'intel/threatfoundry-mark.svg' %}" alt="ThreatFoundry logo">
+                <div>
+                    <p class="eyebrow">Threat Intelligence Console</p>
+                    <a class="brand" href="{% url 'intel:dashboard' %}">
+                        <span class="brand-muted">Threat</span><span class="brand-accent">Foundry</span>
+                    </a>
+                </div>
+            </div>
+            <nav class="topbar-actions">
+                <a class="topbar-link" href="{% url 'intel:dashboard' %}">Dashboard</a>
+                <a class="topbar-link" href="{% url 'intel:analyst_chat' %}">Analyst Chat</a>
+                <a class="topbar-link" href="{% url 'intel:malware_family' %}">Malware Workspaces</a>
+                <a class="topbar-link" href="{% url 'intel:documentation' %}">Documentation</a>
+                <a class="topbar-link" href="/admin/">Admin</a>
+                <form class="time-format-form" method="post" action="{% url 'intel:set_time_display' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <label for="time-display-option">Time format</label>
+                    <select id="time-display-option" name="time_display_option" onchange="this.form.submit()">
+                        {% for option in time_display_choices %}
+                            <option value="{{ option.key }}" {% if time_display_option == option.key %}selected{% endif %}>
+                                {{ option.label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </nav>
+        </header>
+        <main class="workspace">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+</html>

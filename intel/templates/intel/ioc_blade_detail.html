@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% load intel_datetime %}
+
+{% block title %}ThreatFoundry | IOC Blade{% endblock %}
+
+{% block content %}
+<section class="detail-layout">
+    <div class="detail-main">
+        <div class="panel">
+            <div class="panel-header">
+                <div>
+                    <p class="eyebrow">IOC Blade</p>
+                    <h1>{{ value }}</h1>
+                </div>
+                <a class="ghost-link" href="{% url 'intel:dashboard' %}?search={{ value|urlencode }}">Back to search</a>
+            </div>
+            <div class="detail-grid">
+                <div class="detail-item">
+                    <span>IOC Type</span>
+                    <strong>{{ type_label }}</strong>
+                </div>
+                <div class="detail-item">
+                    <span>Sources</span>
+                    <strong>{{ source_summary }}</strong>
+                </div>
+                <div class="detail-item">
+                    <span>Matched Records</span>
+                    <strong>{{ record_count }}</strong>
+                </div>
+                <div class="detail-item">
+                    <span>Source Count</span>
+                    <strong>{{ source_count }}</strong>
+                </div>
+                <div class="detail-item">
+                    <span>Latest Observed</span>
+                    <strong>{% display_datetime latest_observed_at %}</strong>
+                </div>
+                <div class="detail-item">
+                    <span>Latest Ingest</span>
+                    <strong>{% display_datetime latest_ingested_at %}</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div>
+                    <p class="eyebrow">Aggregate Context</p>
+                    <h2>IOC Summary</h2>
+                </div>
+            </div>
+            <div class="detail-sections">
+                <section class="detail-section">
+                    <p class="section-title">Threat Types</p>
+                    <div class="chip-row">
+                        {% for item in threat_types %}
+                            <span class="chip chip-strong">{{ item }}</span>
+                        {% endfor %}
+                    </div>
+                </section>
+
+                <section class="detail-section">
+                    <p class="section-title">Malware Families</p>
+                    <div class="chip-row">
+                        {% for item in malware_families %}
+                            <span class="chip chip-strong">{{ item }}</span>
+                        {% endfor %}
+                    </div>
+                </section>
+
+                <section class="detail-section">
+                    <p class="section-title">Tags</p>
+                    {% if tags %}
+                        <div class="chip-row">
+                            {% for item in tags %}
+                                <span class="chip">{{ item }}</span>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="muted">No shared tags stored for this IOC.</p>
+                    {% endif %}
+                </section>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div>
+                    <p class="eyebrow">Source Breakdown</p>
+                    <h2>Related IOC Information And References</h2>
+                </div>
+            </div>
+            <div class="detail-sections">
+                {% for source in source_details %}
+                    <section class="detail-section">
+                        <p class="section-title">{{ source.source_label }}</p>
+                        <dl class="detail-list detail-list-compact">
+                            <div>
+                                <dt>Record IDs</dt>
+                                <dd>{{ source.record_ids|join:", " }}</dd>
+                            </div>
+                            <div>
+                                <dt>Threat Types</dt>
+                                <dd>{{ source.threat_types|join:", " }}</dd>
+                            </div>
+                            <div>
+                                <dt>Malware Families</dt>
+                                <dd>{{ source.malware_families|join:", " }}</dd>
+                            </div>
+                            <div>
+                                <dt>Confidence</dt>
+                                <dd>
+                                    {% if source.confidence_levels %}
+                                        {{ source.confidence_levels|join:", " }}
+                                    {% else %}
+                                        Not provided
+                                    {% endif %}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt>Reporters</dt>
+                                <dd>{{ source.reporters|join:", " }}</dd>
+                            </div>
+                            <div>
+                                <dt>Last Seen</dt>
+                                <dd>{% display_datetime source.last_seen %}</dd>
+                            </div>
+                            <div>
+                                <dt>Tags</dt>
+                                <dd>
+                                    {% if source.tags %}
+                                        {{ source.tags|join:", " }}
+                                    {% else %}
+                                        Not provided
+                                    {% endif %}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt>References</dt>
+                                <dd>
+                                    {% if source.external_links %}
+                                        <div class="reference-link-list">
+                                            {% for link in source.external_links %}
+                                                <a href="{{ link.url }}" target="_blank" rel="noreferrer">{{ link.label }}</a>
+                                                {% if link.note %}
+                                                    <span class="inline-tags">{{ link.note }}</span>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    {% else %}
+                                        No external reference available.
+                                    {% endif %}
+                                </dd>
+                            </div>
+                        </dl>
+                    </section>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <aside class="detail-side panel">
+        <div class="panel-header">
+            <div>
+                <p class="eyebrow">Sources</p>
+                <h2>Platform Coverage</h2>
+            </div>
+        </div>
+        <div class="context-block">
+            <p class="section-title">Included Sources</p>
+            <div class="chip-row">
+                {% for label in source_labels %}
+                    <span class="chip chip-strong">{{ label }}</span>
+                {% endfor %}
+            </div>
+        </div>
+    </aside>
+</section>
+{% endblock %}

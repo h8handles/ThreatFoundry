@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% load intel_datetime %}
+
+{% block title %}ThreatFoundry | IOC Detail{% endblock %}
+
+{% block content %}
+<section class="detail-layout">
+    <div class="detail-main">
+        <div class="panel">
+            <div class="panel-header">
+                <div>
+                    <p class="eyebrow">Analyst Detail</p>
+                    <h1>{{ record.value }}</h1>
+                </div>
+                <a class="ghost-link" href="{% url 'intel:dashboard' %}">Back to dashboard</a>
+            </div>
+            <div class="detail-grid">
+                {% for item in overview_items %}
+                    <div class="detail-item">
+                        <span>{{ item.label }}</span>
+                        <strong>{{ item.value }}</strong>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        {% if detail_sections %}
+        <div class="panel">
+            <div class="panel-header">
+                <div>
+                    <p class="eyebrow">Platform Fields</p>
+                    <h2>Source-Specific Context</h2>
+                </div>
+            </div>
+            <div class="detail-sections">
+                {% for section in detail_sections %}
+                    <section class="detail-section">
+                        <p class="section-title">{{ section.title }}</p>
+                        <dl class="detail-list detail-list-compact">
+                            {% for item in section.items %}
+                                <div>
+                                    <dt>{{ item.label }}</dt>
+                                    <dd>{{ item.value }}</dd>
+                                </div>
+                            {% endfor %}
+                        </dl>
+                    </section>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if hash_correlation %}
+        <div class="panel">
+            <div class="panel-header">
+                <div>
+                    <p class="eyebrow">Correlation</p>
+                    <h2>{{ hash_correlation.title }}</h2>
+                </div>
+            </div>
+            <div class="context-block">
+                <p class="muted">{{ hash_correlation.message }}</p>
+            </div>
+
+            {% if hash_correlation.applicable %}
+                <div class="detail-sections">
+                    <section class="detail-section">
+                        <p class="section-title">Digest Type</p>
+                        <p class="summary-title">{{ hash_correlation.canonical_type }}</p>
+                    </section>
+
+                    <section class="detail-section">
+                        <p class="section-title">Inferred Malware Families</p>
+                        {% if hash_correlation.families %}
+                            <div class="chip-row">
+                                {% for item in hash_correlation.families %}
+                                    <span class="chip chip-strong">{{ item.label }} <em>{{ item.count }}</em></span>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p class="muted">No malware family could be inferred from ThreatFox for this exact hash.</p>
+                        {% endif %}
+                    </section>
+
+                    <section class="detail-section">
+                        <p class="section-title">Related Threat Types</p>
+                        {% if hash_correlation.threat_types %}
+                            <ul class="rank-list">
+                                {% for item in hash_correlation.threat_types %}
+                                    <li>
+                                        <span>{{ item.label }}</span>
+                                        <strong>{{ item.count }}</strong>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            <p class="muted">ThreatFox has no exact threat-type hits for this hash yet.</p>
+                        {% endif %}
+                    </section>
+                </div>
+
+                <div class="context-block">
+                    <p class="section-title">Exact ThreatFox Matches</p>
+                    {% if hash_correlation.matches %}
+                        <div class="table-wrap">
+                            <table class="intel-table compact-table">
+                                <thead>
+                                    <tr>
+                                        <th>IOC</th>
+                                        <th>Type</th>
+                                        <th>Malware Family</th>
+                                        <th>Threat Type</th>
+                                        <th>Reporter</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in hash_correlation.matches %}
+                                        <tr class="table-row-link" data-href="{% url 'intel:ioc_detail' item.pk %}">
+                                            <td data-label="IOC"><a href="{% url 'intel:ioc_detail' item.pk %}">{{ item.value }}</a></td>
+                                            <td data-label="Type">{{ item.value_type }}</td>
+                                            <td data-label="Malware Family">{{ item.malware_family }}</td>
+                                            <td data-label="Threat Type">{{ item.threat_type }}</td>
+                                            <td data-label="Reporter">{{ item.reporter }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="muted">No exact ThreatFox hash matches are available in the current dataset.</p>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if virustotal_context %}
+        <div class="panel">
+            <div class="panel-header">
+                <div>
+                    <p class="eyebrow">Enrichment</p>
+                    <h2>VirusTotal Context</h2>
+                </div>
+                {% if virustotal_context.reference_url %}
+                    <a class="ghost-link" href="{{ virustotal_context.reference_url }}" target="_blank" rel="noreferrer">Open VirusTotal</a>
+                {% endif %}
+            </div>
+            <div class="detail-sections">
+                <section class="detail-section">
+                    <p class="section-title">Analysis Summary</p>
+                    <dl class="detail-list detail-list-compact">
+                        {% for item in virustotal_context.analysis_items %}
+                            <div>
+                                <dt>{{ item.label }}</dt>
+                                <dd>{{ item.value }}</dd>
+                            </div>
+                        {% endfor %}
+                    </dl>
+                </section>
+
+                <section class="detail-section">
+                    <p class="section-title">Classification Signals</p>
+                    <dl class="detail-list detail-list-compact">
+                        {% for item in virustotal_context.classification_items %}
+                            <div>
+                                <dt>{{ item.label }}</dt>
+                                <dd>{{ item.value }}</dd>
+                            </div>
+                        {% endfor %}
+                    </dl>
+                </section>
+
+                <section class="detail-section">
+                    <p class="section-title">Artifact Details</p>
+                    <dl class="detail-list detail-list-compact">
+                        {% for item in virustotal_context.artifact_items %}
+                            <div>
+                                <dt>{{ item.label }}</dt>
+                                <dd>{{ item.value }}</dd>
+                            </div>
+                        {% endfor %}
+                    </dl>
+                </section>
+            </div>
+            <div class="context-block">
+                {% if virustotal_context.reference_note %}
+                    <p class="muted">{{ virustotal_context.reference_note }}</p>
+                {% endif %}
+                <p class="section-title">VirusTotal Raw Payload</p>
+                <pre class="code-block">{{ virustotal_context.raw_pretty }}</pre>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="panel">
+            <div class="panel-header">
+                <div>
+                    <p class="eyebrow">Metadata</p>
+                    <h2>Threat Context</h2>
+                </div>
+            </div>
+            <dl class="detail-list">
+                <div>
+                    <dt>Source Name</dt>
+                    <dd>{{ record.source_name }}</dd>
+                </div>
+                <div>
+                    <dt>External References</dt>
+                    <dd>
+                        {% if context_links %}
+                            <div class="detail-sections detail-sections-tight">
+                                {% for provider in context_links %}
+                                    <section class="detail-section detail-section-tight">
+                                        <p class="section-title">{{ provider.provider_label }}</p>
+                                        <div class="reference-link-list">
+                                            {% for link in provider.links %}
+                                                <a href="{{ link.url }}" target="_blank" rel="noreferrer">{{ link.label }}</a>
+                                                {% if link.note %}
+                                                    <span class="inline-tags">{{ link.note }}</span>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    </section>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            No external reference available.
+                        {% endif %}
+                    </dd>
+                </div>
+                <div>
+                    <dt>Created At</dt>
+                    <dd>{% display_datetime record.created_at %}</dd>
+                </div>
+                <div>
+                    <dt>Updated At</dt>
+                    <dd>{% display_datetime record.updated_at %}</dd>
+                </div>
+                <div>
+                    <dt>Tags</dt>
+                    <dd>
+                        {% if tag_list %}
+                            <div class="chip-row">
+                                {% for tag in tag_list %}
+                                    <span class="chip chip-strong">{{ tag }}</span>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            No tags stored for this IOC.
+                        {% endif %}
+                    </dd>
+                </div>
+            </dl>
+        </div>
+    </div>
+
+    <aside class="detail-side panel">
+        <div class="panel-header">
+            <div>
+                <p class="eyebrow">Raw Record</p>
+                <h2>Source Payload</h2>
+            </div>
+        </div>
+        <div class="payload-panel">
+            <p class="payload-meta">Scrollable raw source payload.</p>
+            <div class="payload-scroll-shell">
+                <pre class="code-block code-block-scroll">{{ raw_payload_pretty }}</pre>
+            </div>
+        </div>
+    </aside>
+</section>
+{% endblock %}
