@@ -1,6 +1,6 @@
-# IOC Workbench
+# ThreatFoundry
 
-IOC Workbench is a Django 5 application for ingesting, normalizing, enriching, and triaging indicators of compromise (IOCs).
+ThreatFoundry is a Django 5 application for ingesting, normalizing, enriching, and triaging indicators of compromise (IOCs).
 
 ## Overview
 
