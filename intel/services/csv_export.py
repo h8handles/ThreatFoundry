@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from datetime import date, datetime, time
 
 
@@ -22,3 +23,15 @@ def sanitize_csv_cell(value) -> str:
 
 def sanitize_csv_row(values) -> list[str]:
     return [sanitize_csv_cell(value) for value in values]
+
+
+class _Echo:
+    def write(self, value: str) -> str:
+        return value
+
+
+def iter_csv_lines(header, row_iterable):
+    writer = csv.writer(_Echo())
+    yield writer.writerow(sanitize_csv_row(header))
+    for row in row_iterable:
+        yield writer.writerow(sanitize_csv_row(row))

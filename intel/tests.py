@@ -1,10 +1,15 @@
 import json
-import fcntl
 import tempfile
+import unittest
 from io import StringIO
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows does not provide fcntl
+    fcntl = None
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
@@ -605,6 +610,7 @@ class RefreshIntelCommandTests(TestCase):
 
     @patch.dict("os.environ", {"THREATFOX_API_KEY": "test-threatfox-key"}, clear=False)
     @patch("intel.services.refresh_pipeline.fetch_threatfox_iocs")
+    @unittest.skipIf(fcntl is None, "fcntl is not available on this platform.")
     def test_refresh_intel_scheduled_skips_when_lock_is_held(
         self,
         mock_threatfox,
@@ -1635,6 +1641,35 @@ class DashboardSortingAndLinkRenderingTests(ViewerAccessTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "May require a VirusTotal sign-in for full context.")
+
+    def test_dashboard_hunt_controls_export_link_keeps_scope_query(self):
+        response = self.client.get(
+            reverse("intel:dashboard"),
+            {"search": "alpha.example", "value_type": "domain", "tag": "phishing"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("intel:dashboard_export_csv"))
+        self.assertContains(response, "search=alpha.example")
+        self.assertContains(response, "value_type=domain")
+        self.assertContains(response, "tag=phishing")
+
+    def test_dashboard_export_csv_honors_filter_scope(self):
+        response = self.client.get(
+            reverse("intel:dashboard_export_csv"),
+            {"search": "alpha.example"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/csv")
+        self.assertIn("attachment; filename=", response["Content-Disposition"])
+
+        csv_body = "".join(
+            chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk
+            for chunk in response.streaming_content
+        )
+        self.assertIn("alpha.example", csv_body)
+        self.assertNotIn("zulu.example", csv_body)
 
 
 class PopulateSampleIocsCommandTests(ViewerAccessTestCase):

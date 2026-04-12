@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.paginator import Paginator
+from django.db import connection
 from django.db.models import Avg, Case, CharField, Count, DateTimeField, F, Max, Min, Q, Value, When
 from django.db.models.functions import Coalesce, Greatest, TruncDate
 from django.urls import reverse
@@ -858,15 +859,29 @@ def _filter_queryset_by_tag(queryset, search_term: str):
     if not normalized_search:
         return queryset
 
-    matching_ids = []
-    for record_id, tags in queryset.values_list("id", "tags"):
-        if any(normalized_search in tag.lower() for tag in _normalize_tags(tags)):
-            matching_ids.append(record_id)
+    like_pattern = f"%{normalized_search}%"
+    vendor = connection.vendor
 
-    if not matching_ids:
-        return queryset.none()
+    if vendor == "postgresql":
+        # Use JSONB expansion in-database for case-insensitive partial tag matching.
+        return queryset.extra(
+            where=[
+                "EXISTS (SELECT 1 FROM jsonb_array_elements_text(tags) AS tag WHERE lower(tag) LIKE %s)"
+            ],
+            params=[like_pattern],
+        )
 
-    return queryset.filter(id__in=matching_ids)
+    if vendor == "sqlite":
+        # SQLite JSON1 equivalent for local/dev parity.
+        return queryset.extra(
+            where=[
+                "EXISTS (SELECT 1 FROM json_each(tags) WHERE lower(json_each.value) LIKE %s)"
+            ],
+            params=[like_pattern],
+        )
+
+    # Conservative fallback for unsupported backends.
+    return queryset.filter(tags__icontains=search_term)
 
 
 def _normalize_tags(tags) -> list[str]:

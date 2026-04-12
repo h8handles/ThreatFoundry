@@ -85,7 +85,14 @@
                 </select>
             </label>
 
-            <button class="primary-button" type="submit">Apply filters</button>
+            <div class="filter-form-actions">
+                <button class="primary-button" type="submit">Apply filters</button>
+                {% if request.GET.urlencode %}
+                    <a class="secondary-button" href="{% url 'intel:dashboard_export_csv' %}?{{ request.GET.urlencode }}">Export CSV</a>
+                {% else %}
+                    <a class="secondary-button" href="{% url 'intel:dashboard_export_csv' %}">Export CSV</a>
+                {% endif %}
+            </div>
         </form>
 
         <div class="rail-section">

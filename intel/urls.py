@@ -3,6 +3,7 @@ from django.urls import path
 from intel.views import (
     dashboard_view,
     documentation_view,
+    export_dashboard_csv_view,
     ioc_blade_detail_view,
     ioc_detail_view,
     malware_family_view,
@@ -16,6 +17,7 @@ app_name = "intel"
 urlpatterns = [
     path("", dashboard_view, name="dashboard"),
     path("dashboard/", dashboard_view, name="dashboard_alias"),
+    path("dashboard/export-csv/", export_dashboard_csv_view, name="dashboard_export_csv"),
     path("assistant/", analyst_chat_view, name="analyst_chat"),
     path("api/assistant/chat/", analyst_chat_api_view, name="analyst_chat_api"),
     path("docs/", documentation_view, name="documentation"),

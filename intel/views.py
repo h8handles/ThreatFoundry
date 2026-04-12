@@ -1,9 +1,8 @@
-import csv
 import json
 from pathlib import Path
 
 from django.conf import settings
-from django.http import Http404, HttpResponse
+from django.http import Http404, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
@@ -11,7 +10,7 @@ from django.views.decorators.http import require_POST
 from intel.access import VIEWER_GROUP, role_required
 from intel.models import IntelIOC
 from intel.services.correlation import build_hash_correlation_context
-from intel.services.csv_export import sanitize_csv_row
+from intel.services.csv_export import iter_csv_lines
 from intel.services.dashboard import (
     apply_dashboard_filters,
     apply_dashboard_sort,
@@ -42,57 +41,51 @@ def export_dashboard_csv_view(request):
     filtered_queryset = apply_dashboard_filters(queryset_for_dashboard_filters(), filters)
     ordered_queryset = apply_dashboard_sort(filtered_queryset, filters)
 
-    response = HttpResponse(content_type="text/csv")
+    header = [
+        "id",
+        "value",
+        "value_type",
+        "source_name",
+        "source_record_id",
+        "observed_at",
+        "first_seen",
+        "last_seen",
+        "last_ingested_at",
+        "threat_type",
+        "malware_family",
+        "effective_confidence_level",
+        "confidence_level",
+        "derived_confidence_level",
+        "reporter",
+        "reference_url",
+        "tags",
+    ]
+
+    def row_iterable():
+        for record in ordered_queryset.iterator():
+            tags = ", ".join(str(tag).strip() for tag in (record.tags or []) if str(tag).strip())
+            yield [
+                record.id,
+                record.value,
+                record.value_type,
+                record.source_name,
+                record.source_record_id,
+                getattr(record, "timeline_at", None),
+                record.first_seen,
+                record.last_seen,
+                record.last_ingested_at,
+                getattr(record, "threat_bucket", "") or record.threat_type,
+                getattr(record, "malware_bucket", "") or record.malware_family,
+                getattr(record, "effective_confidence_level", ""),
+                record.confidence_level,
+                record.derived_confidence_level,
+                record.reporter,
+                record.reference_url,
+                tags,
+            ]
+
+    response = StreamingHttpResponse(iter_csv_lines(header, row_iterable()), content_type="text/csv")
     response["Content-Disposition"] = 'attachment; filename="dashboard_scope_export.csv"'
-    writer = csv.writer(response)
-    writer.writerow(
-        [
-            "id",
-            "value",
-            "value_type",
-            "source_name",
-            "source_record_id",
-            "observed_at",
-            "first_seen",
-            "last_seen",
-            "last_ingested_at",
-            "threat_type",
-            "malware_family",
-            "effective_confidence_level",
-            "confidence_level",
-            "derived_confidence_level",
-            "reporter",
-            "reference_url",
-            "tags",
-        ]
-    )
-
-    for record in ordered_queryset.iterator():
-        tags = ", ".join(str(tag).strip() for tag in (record.tags or []) if str(tag).strip())
-        writer.writerow(
-            sanitize_csv_row(
-                [
-                    record.id,
-                    record.value,
-                    record.value_type,
-                    record.source_name,
-                    record.source_record_id,
-                    getattr(record, "timeline_at", None),
-                    record.first_seen,
-                    record.last_seen,
-                    record.last_ingested_at,
-                    getattr(record, "threat_bucket", "") or record.threat_type,
-                    getattr(record, "malware_bucket", "") or record.malware_family,
-                    getattr(record, "effective_confidence_level", ""),
-                    record.confidence_level,
-                    record.derived_confidence_level,
-                    record.reporter,
-                    record.reference_url,
-                    tags,
-                ]
-            )
-        )
-
     return response
 
 
