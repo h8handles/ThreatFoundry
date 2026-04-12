@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
+from intel.access import VIEWER_GROUP, role_required
 from intel.models import IntelIOC
 from intel.services.correlation import build_hash_correlation_context
 from intel.services.dashboard import (
@@ -23,12 +24,14 @@ from intel.time_display import (
 )
 
 
+@role_required(VIEWER_GROUP)
 def dashboard_view(request):
     filters = parse_dashboard_filters(request.GET)
     context = build_dashboard_context(filters)
     return render(request, "intel/dashboard.html", context)
 
 
+@role_required(VIEWER_GROUP)
 def ioc_detail_view(request, pk: int):
     record = get_object_or_404(IntelIOC, pk=pk)
     context = build_detail_context(record)
@@ -37,6 +40,7 @@ def ioc_detail_view(request, pk: int):
     return render(request, "intel/ioc_detail.html", context)
 
 
+@role_required(VIEWER_GROUP)
 def ioc_blade_detail_view(request):
     value = (request.GET.get("value") or "").strip()
     value_type = (request.GET.get("value_type") or "").strip()
@@ -50,6 +54,7 @@ def ioc_blade_detail_view(request):
     return render(request, "intel/ioc_blade_detail.html", context)
 
 
+@role_required(VIEWER_GROUP)
 def malware_family_view(request):
     family = (request.GET.get("family") or "").strip()
     if not family:
@@ -74,6 +79,7 @@ def malware_family_view(request):
     return render(request, "intel/malware_family.html", context)
 
 
+@role_required(VIEWER_GROUP)
 def documentation_view(request, doc_name=None):
     import markdown
 
@@ -117,6 +123,7 @@ def documentation_view(request, doc_name=None):
 
 
 @require_POST
+@role_required(VIEWER_GROUP)
 def set_time_display_view(request):
     selected = request.POST.get("time_display_option")
     request.session[TIME_DISPLAY_SESSION_KEY] = get_time_display_definition(selected).key

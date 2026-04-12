@@ -1,0 +1,58 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ThreatFoundry | Sign In</title>
+    <link rel="stylesheet" href="{% static 'intel/dashboard.css' %}">
+    <link rel="icon" type="image/svg+xml" href="{% static 'intel/threatfoundry-mark.svg' %}">
+</head>
+<body>
+    <div class="app-shell">
+        <main class="workspace">
+            <section class="detail-layout">
+                <div class="detail-main">
+                    <section class="panel hero">
+                        <div class="panel-header panel-header-tight hero-header">
+                            <div class="hero-copy">
+                                <p class="eyebrow">Threat Intelligence Console</p>
+                                <h1><span class="brand-muted">Threat</span><span class="brand-accent">Foundry</span></h1>
+                                <p class="hero-subtitle">Sign in to access the analyst workspace</p>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-header">
+                            <div>
+                                <p class="eyebrow">Authentication</p>
+                                <h2>Login</h2>
+                            </div>
+                        </div>
+                        <form method="post" class="filter-form">
+                            {% csrf_token %}
+                            {% if form.non_field_errors %}
+                                <div class="empty-state">{{ form.non_field_errors }}</div>
+                            {% endif %}
+                            <label>
+                                <span>Username</span>
+                                <input type="text" name="username" autofocus required>
+                            </label>
+                            <label>
+                                <span>Password</span>
+                                <input type="password" name="password" required>
+                            </label>
+                            {% if next %}
+                                <input type="hidden" name="next" value="{{ next }}">
+                            {% endif %}
+                            <button class="primary-button" type="submit">Sign in</button>
+                        </form>
+                        <p class="muted">Need an account? <a href="{% url 'register' %}">Register</a></p>
+                    </section>
+                </div>
+            </section>
+        </main>
+    </div>
+</body>
+</html>

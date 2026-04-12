@@ -48,7 +48,21 @@ Copy-Item .env.example .env
 python manage.py migrate
 ```
 
-5. Load IOC data.
+5. Create your first login.
+
+```bash
+python manage.py createsuperuser
+```
+
+Superusers can use Django admin immediately. Baseline access groups are also created by migration:
+- `admin`
+- `analyst`
+- `viewer`
+
+Assign non-superuser accounts to one of those groups in `/admin/` before using the app.
+Users can also self-register at `/auth/register/`; self-registered accounts are assigned `viewer` by default.
+
+6. Load IOC data.
 
 ```bash
 # local demo data
@@ -63,7 +77,7 @@ python manage.py import_alienvault --days 1
 python manage.py import_urlhaus
 ```
 
-6. Start the app.
+7. Start the app.
 
 ```bash
 python manage.py runserver
@@ -71,7 +85,7 @@ python manage.py runserver
 
 Default bind: `172.30.150.130:8080`
 
-7. Open:
+8. Open:
 
 ```text
 http://172.30.150.130:8080/
@@ -161,6 +175,8 @@ python manage.py showmigrations
 - `python manage.py refresh_intel --provider threatfox`
 - `python manage.py refresh_intel --since 7d`
 - `python manage.py refresh_intel --dry-run`
+- `python manage.py correlate_unknowns`
+- `python manage.py correlate_unknowns --limit 100`
 - `python manage.py cleanup_old_iocs`
 - `python manage.py trim_ioc_samples --limit 500`
 
@@ -197,14 +213,17 @@ The command itself appends to the configured logfile, records per-provider outco
 
 ## Web Routes
 
-- `/` and `/dashboard/`: dashboard
-- `/assistant/`: analyst assistant page
-- `/api/assistant/chat/`: assistant API endpoint (POST)
-- `/docs/`: in-app docs browser
-- `/docs/<doc_name>/`: specific doc page
-- `/malware/`: malware directory and family view
-- `/ioc-blade/`: aggregated IOC blade detail
-- `/ioc/<pk>/`: IOC detail
+- `/auth/login/`: login page
+- `/auth/register/`: self-service local registration page, defaults new users to `viewer`
+- `/auth/logout/`: logout endpoint
+- `/` and `/dashboard/`: dashboard, requires `viewer` or higher
+- `/assistant/`: analyst assistant page, requires `analyst` or higher
+- `/api/assistant/chat/`: assistant API endpoint (POST), requires authenticated `analyst` or higher
+- `/docs/`: in-app docs browser, requires `viewer` or higher
+- `/docs/<doc_name>/`: specific doc page, requires `viewer` or higher
+- `/malware/`: malware directory and family view, requires `viewer` or higher
+- `/ioc-blade/`: aggregated IOC blade detail, requires `viewer` or higher
+- `/ioc/<pk>/`: IOC detail, requires `viewer` or higher
 - `/admin/`: Django admin
 
 ## Documentation
@@ -229,6 +248,22 @@ Use `INTEL_CHAT_PROVIDER=hybrid` to fall back to local responses if n8n is unava
 - Keep `.env` local and uncommitted.
 - Keep `.env.example` placeholder-only.
 - For non-local use, set `DJANGO_DEBUG=false` and provide a strong `DJANGO_SECRET_KEY`.
+- ThreatFoundry now defaults to authenticated access for analyst-facing routes.
+- Role baseline:
+  - `viewer`: read-only access to dashboard, docs, malware, and IOC investigation pages
+  - `analyst`: viewer access plus analyst assistant UI/API
+  - `admin`: administrator access and compatibility with analyst/viewer checks
+
+## Correlation Engine
+
+- `python manage.py correlate_unknowns` correlates partially unknown IOCs against locally stored IOC and enrichment evidence.
+- The engine never overwrites source-native `threat_type`, `malware_family`, or `confidence_level`.
+- Derived outputs are stored separately on each IOC:
+  - `derived_confidence_level`
+  - `likely_threat_type`
+  - `likely_malware_family`
+  - `correlation_reasons`
+- Promotions only happen when the derived score is `>= 60`; lower-confidence results retain unknown classifications and store reasons only.
 
 ## Roadmap
 

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}ThreatFoundry | Access Denied{% endblock %}
+
+{% block content %}
+<section class="detail-layout">
+    <div class="detail-main">
+        <section class="panel hero">
+            <div class="panel-header panel-header-tight hero-header">
+                <div class="hero-copy">
+                    <p class="eyebrow">Authorization</p>
+                    <h1>Access denied</h1>
+                    <p class="hero-subtitle">Your account does not have the required role for this page.</p>
+                </div>
+            </div>
+            <div class="hero-actions">
+                <a class="ghost-link" href="{% url 'intel:dashboard' %}">Return to dashboard</a>
+            </div>
+        </section>
+    </div>
+</section>
+{% endblock %}

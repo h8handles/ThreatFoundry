@@ -41,7 +41,7 @@ SORT_OPTIONS = {
     "value": ("value", "value_type", "source_name", "id"),
     "type": ("value_type", "value", "source_name", "id"),
     "source": ("source_name", "value", "value_type", "id"),
-    "confidence": ("confidence_level", "value", "source_name", "id"),
+    "confidence": ("effective_confidence_level", "value", "source_name", "id"),
     "threat": ("threat_type", "value", "source_name", "id"),
     "observed": ("timeline_at", "value", "source_name", "id"),
     "ingested": ("last_ingested_at", "value", "source_name", "id"),
@@ -141,7 +141,7 @@ def build_dashboard_context(filters: DashboardFilters) -> dict:
 
     summary = filtered_queryset.aggregate(
         total_iocs=Count("id"),
-        average_confidence=Avg("confidence_level"),
+        average_confidence=Avg("effective_confidence_level"),
         newest_ingest=Max("last_ingested_at"),
         oldest_timeline=Min("timeline_at"),
     )
@@ -280,7 +280,7 @@ def build_malware_family_context(family: str, page: int = 1, page_size: int = 20
 
     summary = family_queryset.aggregate(
         total_iocs=Count("id"),
-        average_confidence=Avg("confidence_level"),
+        average_confidence=Avg("effective_confidence_level"),
         newest_seen=Max("timeline_at"),
         first_seen=Min("timeline_at"),
     )
@@ -394,8 +394,8 @@ def build_dashboard_row(record: IntelIOC) -> dict:
         "source_badges": [context["source_label"] for context in contexts],
         "source_links": source_links,
         "tag_list": _normalize_tags(record.tags),
-        "malware_family": record.malware_family,
-        "malware_family_url": _build_malware_family_url(record.malware_family) if record.malware_family else "",
+        "malware_family": _effective_malware_family(record),
+        "malware_family_url": _build_malware_family_url(_effective_malware_family(record)) if _effective_malware_family(record) else "",
     }
 
 
@@ -436,10 +436,12 @@ def build_ioc_blades(queryset, limit: int = 24) -> list[dict]:
                 if reference_url:
                     blade["reference_urls"].add(reference_url)
 
-        if record.threat_type:
-            blade["threat_types"].add(record.threat_type)
-        if record.malware_family:
-            blade["malware_families"].add(record.malware_family)
+        effective_threat = _effective_threat_type(record)
+        effective_family = _effective_malware_family(record)
+        if effective_threat:
+            blade["threat_types"].add(effective_threat)
+        if effective_family:
+            blade["malware_families"].add(effective_family)
 
     blades = []
     for blade in list(grouped.values())[:limit]:
@@ -487,10 +489,12 @@ def build_ioc_blade_detail_context(value: str, value_type: str) -> dict | None:
         latest_observed_at = _latest_datetime(latest_observed_at, record.timeline_at)
         latest_ingested_at = _latest_datetime(latest_ingested_at, record.last_ingested_at)
 
-        if record.threat_type:
-            threat_types.add(record.threat_type)
-        if record.malware_family:
-            malware_families.add(record.malware_family)
+        effective_threat = _effective_threat_type(record)
+        effective_family = _effective_malware_family(record)
+        if effective_threat:
+            threat_types.add(effective_threat)
+        if effective_family:
+            malware_families.add(effective_family)
         for tag in _normalize_tags(record.tags):
             tags.add(tag)
 
@@ -765,32 +769,65 @@ def _base_queryset():
             output_field=DateTimeField(),
         ),
         malware_bucket=Case(
-            When(malware_family__isnull=True, then=Value(UNKNOWN_LABEL)),
-            When(malware_family="", then=Value(UNKNOWN_LABEL)),
+            When(malware_family__isnull=True, then=Case(
+                When(likely_malware_family__isnull=True, then=Value(UNKNOWN_LABEL)),
+                When(likely_malware_family="", then=Value(UNKNOWN_LABEL)),
+                default="likely_malware_family",
+                output_field=CharField(),
+            )),
+            When(malware_family="", then=Case(
+                When(likely_malware_family__isnull=True, then=Value(UNKNOWN_LABEL)),
+                When(likely_malware_family="", then=Value(UNKNOWN_LABEL)),
+                default="likely_malware_family",
+                output_field=CharField(),
+            )),
+            When(malware_family__iexact=UNKNOWN_LABEL, then=Case(
+                When(likely_malware_family__isnull=True, then=Value(UNKNOWN_LABEL)),
+                When(likely_malware_family="", then=Value(UNKNOWN_LABEL)),
+                default="likely_malware_family",
+                output_field=CharField(),
+            )),
             default="malware_family",
             output_field=CharField(),
         ),
         threat_bucket=Case(
-            When(threat_type__isnull=True, then=Value(UNKNOWN_LABEL)),
-            When(threat_type="", then=Value(UNKNOWN_LABEL)),
+            When(threat_type__isnull=True, then=Case(
+                When(likely_threat_type__isnull=True, then=Value(UNKNOWN_LABEL)),
+                When(likely_threat_type="", then=Value(UNKNOWN_LABEL)),
+                default="likely_threat_type",
+                output_field=CharField(),
+            )),
+            When(threat_type="", then=Case(
+                When(likely_threat_type__isnull=True, then=Value(UNKNOWN_LABEL)),
+                When(likely_threat_type="", then=Value(UNKNOWN_LABEL)),
+                default="likely_threat_type",
+                output_field=CharField(),
+            )),
+            When(threat_type__iexact=UNKNOWN_LABEL, then=Case(
+                When(likely_threat_type__isnull=True, then=Value(UNKNOWN_LABEL)),
+                When(likely_threat_type="", then=Value(UNKNOWN_LABEL)),
+                default="likely_threat_type",
+                output_field=CharField(),
+            )),
             default="threat_type",
             output_field=CharField(),
         ),
+        effective_confidence_level=Coalesce("derived_confidence_level", "confidence_level"),
     )
 
 
 def _apply_confidence_filter(queryset, band: str):
     queryset = _confidence_scoped_queryset(queryset)
     if band == "Unknown":
-        return queryset.filter(confidence_level__isnull=True)
+        return queryset.filter(effective_confidence_level__isnull=True)
     if band == "0-24":
-        return queryset.filter(confidence_level__gte=0, confidence_level__lt=25)
+        return queryset.filter(effective_confidence_level__gte=0, effective_confidence_level__lt=25)
     if band == "25-49":
-        return queryset.filter(confidence_level__gte=25, confidence_level__lt=50)
+        return queryset.filter(effective_confidence_level__gte=25, effective_confidence_level__lt=50)
     if band == "50-74":
-        return queryset.filter(confidence_level__gte=50, confidence_level__lt=75)
+        return queryset.filter(effective_confidence_level__gte=50, effective_confidence_level__lt=75)
     if band == "75-100":
-        return queryset.filter(confidence_level__gte=75)
+        return queryset.filter(effective_confidence_level__gte=75)
     return queryset
 
 
@@ -799,10 +836,10 @@ def _build_confidence_distribution(queryset):
     distribution = list(
         queryset.annotate(
             confidence_bucket=Case(
-                When(confidence_level__isnull=True, then=Value("Unknown")),
-                When(confidence_level__lt=25, then=Value("0-24")),
-                When(confidence_level__lt=50, then=Value("25-49")),
-                When(confidence_level__lt=75, then=Value("50-74")),
+                When(effective_confidence_level__isnull=True, then=Value("Unknown")),
+                When(effective_confidence_level__lt=25, then=Value("0-24")),
+                When(effective_confidence_level__lt=50, then=Value("25-49")),
+                When(effective_confidence_level__lt=75, then=Value("50-74")),
                 default=Value("75-100"),
                 output_field=CharField(),
             )
@@ -855,11 +892,11 @@ def _build_dashboard_summary(record: IntelIOC) -> dict:
         )
         meta = [f"Record ID {record.source_record_id}"]
         if record.malware_family:
-            meta.append(f"Family {record.malware_family}")
+            meta.append(f"Family {_effective_malware_family(record)}")
         if record.threat_type:
-            meta.append(record.threat_type)
-        if record.confidence_level is not None:
-            meta.append(f"Confidence {record.confidence_level}")
+            meta.append(_effective_threat_type(record))
+        if _effective_confidence_level(record) is not None:
+            meta.append(f"Confidence {_effective_confidence_level(record)}")
         if raw_payload.get("description"):
             meta.append(_compact_text(raw_payload.get("description"), 80))
         return {
@@ -868,15 +905,15 @@ def _build_dashboard_summary(record: IntelIOC) -> dict:
         }
 
     headline = _first_nonempty_text(
-        record.threat_type,
-        record.malware_family,
+        _effective_threat_type(record),
+        _effective_malware_family(record),
         record.reporter,
     )
     meta = []
-    if record.malware_family:
-        meta.append(f"Family {record.malware_family}")
-    if record.confidence_level is not None:
-        meta.append(f"Confidence {record.confidence_level}")
+    if _effective_malware_family(record):
+        meta.append(f"Family {_effective_malware_family(record)}")
+    if _effective_confidence_level(record) is not None:
+        meta.append(f"Confidence {_effective_confidence_level(record)}")
     elif record.reporter:
         meta.append(f"Reporter {record.reporter}")
 
@@ -896,9 +933,12 @@ def _build_overview_items(record: IntelIOC, observed_at) -> list[dict]:
     ]
 
     optional_items = [
-        ("Threat Type", record.threat_type),
-        ("Malware Family", record.malware_family),
-        ("Confidence", str(record.confidence_level) if record.confidence_level is not None else ""),
+        ("Threat Type", _effective_threat_type(record)),
+        ("Malware Family", _effective_malware_family(record)),
+        ("Confidence", str(_effective_confidence_level(record)) if _effective_confidence_level(record) is not None else ""),
+        ("Likely Threat Type", record.likely_threat_type),
+        ("Likely Malware Family", record.likely_malware_family),
+        ("Correlation Score", str(record.derived_confidence_level) if record.derived_confidence_level is not None else ""),
         ("Reporter", record.reporter),
     ]
 
@@ -1216,7 +1256,9 @@ def _confidence_scoped_queryset(queryset):
     VirusTotal-backed confidence scores to participate once they exist.
     """
     return queryset.filter(
-        Q(source_name__in=CONFIDENCE_ENABLED_SOURCES) | Q(confidence_level__isnull=False)
+        Q(source_name__in=CONFIDENCE_ENABLED_SOURCES)
+        | Q(confidence_level__isnull=False)
+        | Q(derived_confidence_level__isnull=False)
     )
 
 
@@ -1385,6 +1427,29 @@ def _format_source_name(value: str) -> str:
     if normalized in SOURCE_LABEL_OVERRIDES:
         return SOURCE_LABEL_OVERRIDES[normalized]
     return text.replace("_", " ").replace("-", " ").title()
+
+
+def _effective_threat_type(record: IntelIOC) -> str:
+    native = _first_nonempty_text(record.threat_type)
+    if native and native.lower() != UNKNOWN_LABEL.lower():
+        return native
+    return _first_nonempty_text(record.likely_threat_type)
+
+
+def _effective_malware_family(record: IntelIOC) -> str:
+    native = _first_nonempty_text(record.malware_family)
+    if native and native.lower() != UNKNOWN_LABEL.lower():
+        return native
+    return _first_nonempty_text(record.likely_malware_family)
+
+
+def _effective_confidence_level(record: IntelIOC):
+    annotated = getattr(record, "effective_confidence_level", None)
+    if annotated is not None:
+        return annotated
+    if record.derived_confidence_level is not None:
+        return record.derived_confidence_level
+    return record.confidence_level
 
 
 def _compact_text(value, max_length: int = 72) -> str:

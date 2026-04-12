@@ -19,12 +19,16 @@ class IntelIOC(models.Model):
     threat_type = models.CharField(max_length=100, blank=True)
     malware_family = models.CharField(max_length=100, blank=True)
     confidence_level = models.IntegerField(null=True, blank=True)
+    derived_confidence_level = models.IntegerField(null=True, blank=True)
     first_seen = models.DateTimeField(null=True, blank=True)
     last_seen = models.DateTimeField(null=True, blank=True)
     reporter = models.CharField(max_length=100, blank=True)
     reference_url = models.URLField(blank=True)
     tags = models.JSONField(default=list, blank=True)
     external_references = models.JSONField(default=list, blank=True)
+    likely_threat_type = models.CharField(max_length=255, blank=True)
+    likely_malware_family = models.CharField(max_length=255, blank=True)
+    correlation_reasons = models.JSONField(default=list, blank=True)
 
     # We keep the full original source row so we can revisit dropped details.
     raw_payload = models.JSONField(default=dict, blank=True)
@@ -50,6 +54,7 @@ class IntelIOC(models.Model):
             models.Index(fields=["source_name"]),
             models.Index(fields=["threat_type"]),
             models.Index(fields=["malware_family"]),
+            models.Index(fields=["derived_confidence_level"]),
         ]
         ordering = ["-last_seen", "-first_seen", "value"]
 

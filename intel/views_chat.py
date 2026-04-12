@@ -4,6 +4,7 @@ from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_POST
 
+from intel.access import ANALYST_GROUP, api_role_required, role_required
 from intel.services.chatbot import (
     ChatbotServiceError,
     build_chat_bootstrap,
@@ -13,6 +14,7 @@ from intel.services.chatbot import (
 from intel.services.dashboard import parse_dashboard_filters
 
 
+@role_required(ANALYST_GROUP)
 def analyst_chat_view(request):
     filters = parse_dashboard_filters(request.GET)
     context = {
@@ -23,6 +25,7 @@ def analyst_chat_view(request):
 
 
 @require_POST
+@api_role_required(ANALYST_GROUP)
 def analyst_chat_api_view(request):
     try:
         payload = json.loads(request.body.decode("utf-8"))

@@ -6,14 +6,23 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
 from config import settings as project_settings
+from intel.access import ADMIN_GROUP, ANALYST_GROUP, DEFAULT_GROUPS, VIEWER_GROUP
 from intel.models import IngestionRun, IntelIOC, ProviderRun, ProviderRunDetail
 from intel.management.commands.populate_sample_iocs import sample_ioc_payloads
 from intel.services.correlation import build_hash_correlation_context, canonical_hash_type
+from intel.services.correlation import (
+    build_correlation_reasons,
+    correlate_unknown_iocs,
+    normalize_family_alias,
+    score_ioc_correlation,
+)
 from intel.services.dashboard import (
     DashboardFilters,
     build_dashboard_context,
@@ -32,6 +41,41 @@ from intel.services.virustotal import (
     derive_platform_updates,
 )
 from intel.time_display import TIME_DISPLAY_SESSION_KEY
+
+
+User = get_user_model()
+
+
+def create_user_with_group(*, username, group_name, is_staff=False, is_superuser=False):
+    user = User.objects.create_user(
+        username=username,
+        password="test-pass-123",
+        is_staff=is_staff,
+        is_superuser=is_superuser,
+    )
+    if group_name:
+        user.groups.add(Group.objects.get(name=group_name))
+    return user
+
+
+class ViewerAccessTestCase(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.viewer_user = create_user_with_group(
+            username="viewer-user",
+            group_name=VIEWER_GROUP,
+        )
+        self.client.force_login(self.viewer_user)
+
+
+class AnalystAccessTestCase(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.analyst_user = create_user_with_group(
+            username="analyst-user",
+            group_name=ANALYST_GROUP,
+        )
+        self.client.force_login(self.analyst_user)
 
 
 class AlienVaultNormalizationTests(SimpleTestCase):
@@ -102,6 +146,136 @@ class AlienVaultNormalizationTests(SimpleTestCase):
         self.assertEqual(normalized["value"], "https://cdn.bad-download.example/payload.zip")
         self.assertEqual(normalized["reference_url"], "https://urlhaus.abuse.ch/url/555001/")
         self.assertEqual(normalized["external_references"][0]["provider"], "urlhaus")
+
+
+class CorrelationEngineTests(TestCase):
+    def test_normalize_family_alias_collapses_common_variants(self):
+        self.assertEqual(normalize_family_alias("Clear Fake"), "clearfake")
+        self.assertEqual(normalize_family_alias("Async_RAT"), "asyncrat")
+
+    def test_correlate_unknown_iocs_promotes_when_local_signals_are_strong(self):
+        now = datetime(2026, 4, 12, 12, 0, tzinfo=timezone.utc)
+        IntelIOC.objects.create(
+            source_name="threatfox",
+            source_record_id="corr-known-1",
+            value="shared.example",
+            value_type="domain",
+            threat_type="phishing",
+            malware_family="ClearFake",
+            confidence_level=85,
+            tags=["phishing", "clearfake"],
+            reporter="abuse_ch",
+            last_seen=now,
+        )
+        IntelIOC.objects.create(
+            source_name="urlhaus",
+            source_record_id="corr-known-2",
+            value="https://shared.example/payload/dropper.zip",
+            value_type="url",
+            threat_type="malware_download",
+            malware_family="ClearFake",
+            tags=["clearfake", "payload"],
+            reporter="abuse_ch",
+            raw_payload={"signature": "ClearFake"},
+            last_seen=now - timedelta(days=1),
+            enrichment_payloads={
+                "virustotal": {
+                    "summary": {
+                        "popular_threat_names": [{"label": "ClearFake", "count": 3}],
+                        "popular_threat_categories": [{"label": "phishing", "count": 2}],
+                    }
+                }
+            },
+        )
+        unknown = IntelIOC.objects.create(
+            source_name="alienvault",
+            source_record_id="corr-unknown-1",
+            value="shared.example",
+            value_type="domain",
+            threat_type="Unknown",
+            malware_family="",
+            confidence_level=None,
+            tags=["clearfake", "phishing"],
+            reporter="abuse_ch",
+            last_seen=now - timedelta(days=1),
+            enrichment_payloads={
+                "virustotal": {
+                    "summary": {
+                        "popular_threat_names": [{"label": "ClearFake", "count": 4}],
+                        "popular_threat_categories": [{"label": "phishing", "count": 2}],
+                    }
+                }
+            },
+        )
+
+        result = correlate_unknown_iocs()
+
+        unknown.refresh_from_db()
+        self.assertEqual(result["promoted"], 1)
+        self.assertGreaterEqual(unknown.derived_confidence_level, 60)
+        self.assertEqual(unknown.likely_malware_family, "ClearFake")
+        self.assertEqual(unknown.likely_threat_type, "phishing")
+        self.assertTrue(unknown.correlation_reasons)
+
+    def test_correlate_unknown_iocs_keeps_low_score_records_unknown(self):
+        IntelIOC.objects.create(
+            source_name="threatfox",
+            source_record_id="corr-low-1",
+            value="other.example",
+            value_type="domain",
+            threat_type="credential_theft",
+            malware_family="AsyncRAT",
+            confidence_level=70,
+            tags=["rat"],
+        )
+        unknown = IntelIOC.objects.create(
+            source_name="alienvault",
+            source_record_id="corr-low-2",
+            value="loose.example",
+            value_type="domain",
+            threat_type="",
+            malware_family="",
+            confidence_level=None,
+            tags=["misc"],
+        )
+
+        result = correlate_unknown_iocs()
+
+        unknown.refresh_from_db()
+        self.assertEqual(result["skipped"], 1)
+        self.assertIsNone(unknown.derived_confidence_level)
+        self.assertEqual(unknown.likely_malware_family, "")
+        self.assertEqual(unknown.likely_threat_type, "")
+        self.assertIn("No sufficiently strong local correlation signals were found.", unknown.correlation_reasons)
+
+    def test_score_and_reasons_reflect_exact_multisource_match(self):
+        known = IntelIOC.objects.create(
+            source_name="threatfox",
+            source_record_id="corr-score-1",
+            value="score.example",
+            value_type="domain",
+            threat_type="phishing",
+            malware_family="ClearFake",
+            tags=["clearfake"],
+            last_seen=datetime(2026, 4, 12, 12, 0, tzinfo=timezone.utc),
+        )
+        record = IntelIOC.objects.create(
+            source_name="alienvault",
+            source_record_id="corr-score-2",
+            value="score.example",
+            value_type="domain",
+            threat_type="",
+            malware_family="",
+            confidence_level=None,
+            tags=["clearfake"],
+            last_seen=datetime(2026, 4, 11, 12, 0, tzinfo=timezone.utc),
+        )
+
+        score = score_ioc_correlation(record, [known])
+        reasons = build_correlation_reasons(record, [known])
+
+        self.assertGreaterEqual(score, 45)
+        self.assertTrue(any("Exact IOC value/type match" in reason for reason in reasons))
 
 
 class SettingsParsingTests(SimpleTestCase):
@@ -365,11 +539,11 @@ class RefreshIntelCommandTests(TestCase):
             output,
         )
         self.assertIn(
-            "skip breakdown: already enriched=0, unsupported lookup type=1, VT not found=1, no changes after enrichment=0, error=0",
+            "skip breakdown: already enriched=0, unsupported lookup type=0, VT not found=2, no changes after enrichment=0, error=0",
             output,
         )
         self.assertIn(
-            f"IOC {unsupported.pk} value=operator@example.test type=email already_enriched=False lookup=unsupported db_changed=no reason=unsupported_lookup_type",
+            f"IOC {unsupported.pk} value=operator@example.test type=email already_enriched=False lookup=unsupported db_changed=no reason=not_found",
             output,
         )
         self.assertIn(
@@ -382,8 +556,8 @@ class RefreshIntelCommandTests(TestCase):
             detail.details["skip_breakdown"],
             {
                 "already_enriched": 0,
-                "unsupported_lookup_type": 1,
-                "not_found": 1,
+                "unsupported_lookup_type": 0,
+                "not_found": 2,
                 "no_changes_after_enrichment": 0,
                 "error": 0,
             },
@@ -667,7 +841,7 @@ class IngestionStructuredLoggingTests(TestCase):
         self.assertIn("bad record", payload["error_message"])
 
 
-class AlienVaultPresentationTests(TestCase):
+class AlienVaultPresentationTests(ViewerAccessTestCase):
     def test_provider_health_logic_and_dashboard_rendering(self):
         now = datetime(2026, 4, 12, 12, 0, tzinfo=timezone.utc)
         ProviderRun.objects.create(
@@ -1283,8 +1457,9 @@ class VirusTotalEnrichmentTests(TestCase):
         self.assertEqual(distribution["75-100"], 1)
 
 
-class DetailViewRenderingTests(TestCase):
+class DetailViewRenderingTests(ViewerAccessTestCase):
     def setUp(self):
+        super().setUp()
         self.large_payload_record = IntelIOC.objects.create(
             source_name="alienvault",
             source_record_id="detail-large-1",
@@ -1369,8 +1544,9 @@ class DetailViewRenderingTests(TestCase):
         self.assertContains(response, "Platform Coverage")
 
 
-class DashboardSortingAndLinkRenderingTests(TestCase):
+class DashboardSortingAndLinkRenderingTests(ViewerAccessTestCase):
     def setUp(self):
+        super().setUp()
         IntelIOC.objects.create(
             source_name="threatfox",
             source_record_id="sort-a",
@@ -1461,7 +1637,7 @@ class DashboardSortingAndLinkRenderingTests(TestCase):
         self.assertContains(response, "May require a VirusTotal sign-in for full context.")
 
 
-class PopulateSampleIocsCommandTests(TestCase):
+class PopulateSampleIocsCommandTests(ViewerAccessTestCase):
     def test_populate_sample_iocs_creates_expected_records(self):
         stdout = StringIO()
 
@@ -1511,7 +1687,7 @@ class PopulateSampleIocsCommandTests(TestCase):
         self.assertEqual(payloads[5]["raw_payload"], {})
 
 
-class TimeDisplayPreferenceTests(TestCase):
+class TimeDisplayPreferenceTests(ViewerAccessTestCase):
     def test_set_time_display_saves_selection_in_session(self):
         response = self.client.post(
             reverse("intel:set_time_display"),
@@ -1560,3 +1736,209 @@ class TimeDisplayPreferenceTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Apr 11, 2026 7:00 PM")
+
+
+class AuthenticationAndAccessControlTests(TestCase):
+    def setUp(self):
+        self.record = IntelIOC.objects.create(
+            source_name="threatfox",
+            source_record_id="auth-1",
+            value="auth.example",
+            value_type="domain",
+        )
+        self.viewer_user = create_user_with_group(
+            username="viewer-auth",
+            group_name=VIEWER_GROUP,
+        )
+        self.analyst_user = create_user_with_group(
+            username="analyst-auth",
+            group_name=ANALYST_GROUP,
+        )
+        self.admin_user = create_user_with_group(
+            username="admin-auth",
+            group_name=ADMIN_GROUP,
+            is_staff=True,
+        )
+
+    def test_default_groups_exist(self):
+        self.assertEqual(
+            set(Group.objects.filter(name__in=DEFAULT_GROUPS).values_list("name", flat=True)),
+            set(DEFAULT_GROUPS),
+        )
+
+    def test_protected_html_routes_redirect_anonymous_users_to_login(self):
+        route_specs = [
+            reverse("intel:dashboard"),
+            reverse("intel:documentation"),
+            reverse("intel:malware_family"),
+            reverse("intel:ioc_detail", args=[self.record.pk]),
+        ]
+
+        for route in route_specs:
+            with self.subTest(route=route):
+                response = self.client.get(route)
+                self.assertEqual(response.status_code, 302)
+                self.assertIn(reverse("login"), response["Location"])
+
+    def test_login_and_logout_flow_redirects_cleanly(self):
+        login_response = self.client.post(
+            reverse("login"),
+            {"username": "viewer-auth", "password": "test-pass-123"},
+        )
+        self.assertRedirects(login_response, reverse("intel:dashboard"))
+
+        logout_response = self.client.post(reverse("logout"))
+        self.assertRedirects(logout_response, reverse("login"))
+
+    def test_register_flow_creates_user_assigns_viewer_group_and_logs_in(self):
+        response = self.client.post(
+            reverse("register"),
+            {
+                "username": "new-viewer",
+                "password1": "StrongTestPass123!",
+                "password2": "StrongTestPass123!",
+            },
+        )
+
+        self.assertRedirects(response, reverse("intel:dashboard"))
+        created_user = User.objects.get(username="new-viewer")
+        self.assertTrue(created_user.groups.filter(name=VIEWER_GROUP).exists())
+
+        dashboard_response = self.client.get(reverse("intel:dashboard"))
+        self.assertEqual(dashboard_response.status_code, 200)
+
+    def test_viewer_can_access_dashboard_but_not_analyst_chat(self):
+        self.client.force_login(self.viewer_user)
+
+        dashboard_response = self.client.get(reverse("intel:dashboard"))
+        chat_response = self.client.get(reverse("intel:analyst_chat"))
+
+        self.assertEqual(dashboard_response.status_code, 200)
+        self.assertEqual(chat_response.status_code, 403)
+
+    def test_analyst_and_admin_can_access_analyst_chat(self):
+        for user in (self.analyst_user, self.admin_user):
+            with self.subTest(user=user.username):
+                self.client.force_login(user)
+                response = self.client.get(reverse("intel:analyst_chat"))
+                self.assertEqual(response.status_code, 200)
+
+    def test_assistant_api_requires_authenticated_analyst_role(self):
+        anonymous_response = self.client.post(
+            reverse("intel:analyst_chat_api"),
+            data=json.dumps({"prompt": "test prompt"}),
+            content_type="application/json",
+        )
+        self.assertEqual(anonymous_response.status_code, 401)
+
+        self.client.force_login(self.viewer_user)
+        viewer_response = self.client.post(
+            reverse("intel:analyst_chat_api"),
+            data=json.dumps({"prompt": "test prompt"}),
+            content_type="application/json",
+        )
+        self.assertEqual(viewer_response.status_code, 403)
+
+        self.client.force_login(self.analyst_user)
+        with patch("intel.views_chat.build_chat_response") as mock_build_chat_response:
+            mock_build_chat_response.return_value = {"answer": "ok"}
+            analyst_response = self.client.post(
+                reverse("intel:analyst_chat_api"),
+                data=json.dumps({"prompt": "test prompt"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(analyst_response.status_code, 200)
+        self.assertJSONEqual(
+            analyst_response.content,
+            {"ok": True, "response": {"answer": "ok"}},
+        )
+
+
+class CorrelationCommandAndDashboardTests(ViewerAccessTestCase):
+    def test_correlate_unknowns_command_reports_promotions(self):
+        now = datetime(2026, 4, 12, 12, 0, tzinfo=timezone.utc)
+        IntelIOC.objects.create(
+            source_name="threatfox",
+            source_record_id="cmd-known-1",
+            value="cmd.example",
+            value_type="domain",
+            threat_type="phishing",
+            malware_family="ClearFake",
+            confidence_level=90,
+            tags=["clearfake", "phishing"],
+            reporter="abuse_ch",
+            last_seen=now,
+        )
+        IntelIOC.objects.create(
+            source_name="urlhaus",
+            source_record_id="cmd-known-2",
+            value="https://cmd.example/dropper.bin",
+            value_type="url",
+            threat_type="malware_download",
+            malware_family="ClearFake",
+            confidence_level=65,
+            tags=["clearfake"],
+            reporter="abuse_ch",
+            raw_payload={"signature": "ClearFake"},
+            last_seen=now - timedelta(days=1),
+        )
+        IntelIOC.objects.create(
+            source_name="alienvault",
+            source_record_id="cmd-unknown-1",
+            value="cmd.example",
+            value_type="domain",
+            threat_type="",
+            malware_family="Unknown",
+            confidence_level=None,
+            tags=["clearfake"],
+            reporter="abuse_ch",
+            last_seen=now - timedelta(days=1),
+        )
+
+        stdout = StringIO()
+        call_command("correlate_unknowns", stdout=stdout)
+        output = stdout.getvalue()
+
+        self.assertIn("promoted_count: 1", output)
+        self.assertIn("score=", output)
+
+    def test_dashboard_prefers_derived_confidence_for_distribution_and_summary(self):
+        IntelIOC.objects.create(
+            source_name="alienvault",
+            source_record_id="dash-derived-1",
+            value="derived.example",
+            value_type="domain",
+            threat_type="Unknown",
+            malware_family="",
+            confidence_level=None,
+            derived_confidence_level=78,
+            likely_malware_family="ClearFake",
+            likely_threat_type="phishing",
+        )
+
+        context = build_dashboard_context(
+            DashboardFilters(
+                start_date=None,
+                end_date=None,
+                value_type="",
+                malware_family="",
+                threat_type="",
+                confidence_band="",
+                search="",
+                tag="",
+                page=1,
+                page_size=25,
+            )
+        )
+
+        distribution = dict(
+            zip(
+                context["confidence_distribution"]["labels"],
+                context["confidence_distribution"]["values"],
+            )
+        )
+        self.assertEqual(distribution["75-100"], 1)
+        self.assertEqual(distribution["Unknown"], 0)
+        self.assertEqual(context["kpis"]["average_confidence"], 78)
+        self.assertEqual(context["malware_clusters"][0]["label"], "ClearFake")

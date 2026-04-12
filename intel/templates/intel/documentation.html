@@ -267,6 +267,27 @@
             <h1>Documentation</h1>
             <p>IOC Suite project wiki</p>
 
+            <div class="nav-section-title">Workspace</div>
+            <ul class="doc-nav">
+                <li><a class="doc-link" href="{% url 'intel:dashboard' %}"><span class="doc-file-name">Dashboard</span></a></li>
+                {% if authz.can_use_assistant %}
+                    <li><a class="doc-link" href="{% url 'intel:analyst_chat' %}"><span class="doc-file-name">Analyst Chat</span></a></li>
+                {% endif %}
+                <li><a class="doc-link" href="{% url 'intel:malware_family' %}"><span class="doc-file-name">Malware Workspaces</span></a></li>
+                {% if authz.can_administer %}
+                    <li><a class="doc-link" href="/admin/"><span class="doc-file-name">Admin</span></a></li>
+                {% endif %}
+            </ul>
+
+            <div class="nav-section-title">Access</div>
+            <p>{{ request.user.username }} | {{ authz.role_label }}</p>
+            <form method="post" action="{% url 'logout' %}">
+                {% csrf_token %}
+                <button type="submit" class="doc-link">
+                    <span class="doc-file-name">Logout</span>
+                </button>
+            </form>
+
             <div class="nav-section-title">Pages</div>
             <ul class="doc-nav" id="doc-nav">
                 {% for doc in doc_files %}

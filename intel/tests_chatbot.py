@@ -2,14 +2,26 @@ import json
 from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from intel.access import ANALYST_GROUP
 from intel.models import IntelIOC
 
 
 class AnalystChatViewTests(TestCase):
     def setUp(self):
+        analyst_group = Group.objects.get(name=ANALYST_GROUP)
+        user_model = get_user_model()
+        self.analyst_user = user_model.objects.create_user(
+            username="chat-analyst",
+            password="test-pass-123",
+        )
+        self.analyst_user.groups.add(analyst_group)
+        self.client.force_login(self.analyst_user)
+
         IntelIOC.objects.create(
             source_name="threatfox",
             source_record_id="chat-ip-1",
