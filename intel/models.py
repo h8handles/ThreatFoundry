@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class IntelIOC(models.Model):
@@ -172,3 +173,64 @@ class ProviderRunDetail(models.Model):
 
     def __str__(self):
         return f"{self.provider_name} {self.status} @ {self.started_at.isoformat()}"
+
+
+class DomainEnrichment(models.Model):
+    """
+    Stores enrichment data for domain IOCs.  Each record is linked to a single
+    IntelIOC instance that contains a domain indicator.
+    """
+
+    ioc = models.ForeignKey(
+        IntelIOC,
+        on_delete=models.CASCADE,
+        related_name="domain_enrichments",
+    )
+    registrar = models.CharField(max_length=255, blank=True)
+    creation_date = models.DateTimeField(null=True, blank=True)
+    updated_date = models.DateTimeField(null=True, blank=True)
+    expiration_date = models.DateTimeField(null=True, blank=True)
+    registrant_org = models.CharField(max_length=255, blank=True)
+    nameservers = models.JSONField(default=list, blank=True)
+    status_values = models.JSONField(default=list, blank=True)
+    abuse_contact_email = models.EmailField(blank=True)
+
+    a_records = models.JSONField(default=list, blank=True)
+    aaaa_records = models.JSONField(default=list, blank=True)
+    mx_records = models.JSONField(default=list, blank=True)
+    ns_records = models.JSONField(default=list, blank=True)
+    txt_records = models.JSONField(default=list, blank=True)
+    cname = models.CharField(max_length=255, blank=True)
+
+    cert_issuer = models.CharField(max_length=255, blank=True)
+    cert_subject = models.CharField(max_length=255, blank=True)
+    cert_san = models.JSONField(default=list, blank=True)
+    cert_valid_from = models.DateTimeField(null=True, blank=True)
+    cert_valid_to = models.DateTimeField(null=True, blank=True)
+    cert_sha256 = models.CharField(max_length=64, blank=True)
+
+    root_domain = models.CharField(max_length=255, blank=True)
+    subdomain = models.CharField(max_length=255, blank=True)
+    tld = models.CharField(max_length=50, blank=True)
+    resolved_ips = models.JSONField(default=list, blank=True)
+
+    registrar_overlap = models.BooleanField(default=False)
+    nameserver_overlap = models.BooleanField(default=False)
+    domain_age_days = models.IntegerField(null=True, blank=True)
+
+    reputation_sources = models.JSONField(default=list, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("ioc",)
+        indexes = [
+            models.Index(fields=["registrar"]),
+            models.Index(fields=["root_domain"]),
+            models.Index(fields=["tld"]),
+            models.Index(fields=["cert_sha256"]),
+        ]
+
+    def __str__(self):
+        return f"DomainEnrichment for {self.ioc.value}"
