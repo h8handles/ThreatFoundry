@@ -26,12 +26,12 @@ python manage.py runserver
 
 Default bind from custom command:
 
-- Address: `0.0.0.0`
+- Address: `172.30.150.130`
 - Port: `8080`
 
 Open:
 
-- `http://127.0.0.1:8080/`
+- `http://172.30.150.130:8080/`
 
 ## 2) Core Environment Variables
 
@@ -39,7 +39,7 @@ Open:
 
 - `DJANGO_SECRET_KEY`
 - `DJANGO_DEBUG`
-- `DJANGO_ALLOWED_HOSTS`
+- `DJANGO_ALLOWED_HOSTS` (leave blank in local debug mode unless you want a strict allowlist)
 - `DJANGO_CSRF_TRUSTED_ORIGINS`
 - `DJANGO_TIME_ZONE`
 - `INTEL_LOCAL_TIME_ZONE`
@@ -198,18 +198,54 @@ Recommended quick checks:
 
 No in-process scheduler is bundled; schedule external invocation of `refresh_intel`.
 
-## 5.1 Cron (Linux/macOS)
+Use `refresh_intel_scheduled` for automation. It reuses the `refresh_intel` flow, appends command output to a file, and uses an advisory lockfile to skip overlapping runs.
 
-Example for default 02:00 schedule:
+## 5.1 WSL2 Cron
 
-```cron
-0 2 * * * cd /path/to/ioc_project && /path/to/python manage.py refresh_intel >> /var/log/ioc_refresh.log 2>&1
+1. Set log and lock paths if you want to override the defaults:
+
+```env
+INTEL_REFRESH_LOG_FILE=/home/<user>/ThreatFoundry/var/log/refresh_intel.log
+INTEL_REFRESH_LOCK_FILE=/home/<user>/ThreatFoundry/var/run/refresh_intel.lock
 ```
 
-## 5.2 Windows Task Scheduler
+2. Validate the scheduled wrapper manually:
+
+```bash
+python manage.py refresh_intel_scheduled --no-feed-refresh
+```
+
+3. Start cron inside WSL2.
+
+- If systemd is enabled in the distro: `sudo systemctl enable --now cron`
+- Otherwise: `sudo service cron start`
+
+4. Install the cron entry with `crontab -e`.
+
+Example for the default 02:00 schedule:
+
+```cron
+0 2 * * * cd /home/<user>/ThreatFoundry && /home/<user>/ThreatFoundry/threatfoundry/bin/python manage.py refresh_intel_scheduled --timeout 30
+```
+
+Behavior notes:
+
+- Uses the existing refresh orchestration and provider toggles.
+- Respects `INTEL_REFRESH_TIMEOUT`, `INTEL_REFRESH_VIRUSTOTAL_LIMIT`, and `INTEL_REFRESH_VIRUSTOTAL_THROTTLE_SECONDS` unless overridden on the command line.
+- Appends success/failure output to `INTEL_REFRESH_LOG_FILE`.
+- Skips a run cleanly if another scheduled refresh already holds `INTEL_REFRESH_LOCK_FILE`.
+- Continues through individual provider failures; the underlying refresh run still records partial success/failure in `IngestionRun` and `ProviderRunDetail`.
+
+## 5.2 Cron (Linux/macOS)
+
+```cron
+0 2 * * * cd /path/to/ioc_project && /path/to/python manage.py refresh_intel_scheduled
+```
+
+## 5.3 Windows Task Scheduler
 
 - Program/script: path to `python.exe`
-- Arguments: `manage.py refresh_intel`
+- Arguments: `manage.py refresh_intel_scheduled`
 - Start in: repository root path
 
 ## 6) Troubleshooting

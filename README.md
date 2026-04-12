@@ -69,12 +69,12 @@ python manage.py import_urlhaus
 python manage.py runserver
 ```
 
-Default bind: `0.0.0.0:8080`
+Default bind: `172.30.150.130:8080`
 
 7. Open:
 
 ```text
-http://127.0.0.1:8080/
+http://172.30.150.130:8080/
 ```
 
 ## Environment Variables
@@ -85,7 +85,9 @@ The app reads `.env` values using `python-dotenv` when available.
 
 - `DJANGO_SECRET_KEY`: required when `DJANGO_DEBUG=false`
 - `DJANGO_DEBUG`: `true` or `false`
-- `DJANGO_ALLOWED_HOSTS`: comma-separated hosts
+- `DJANGO_RUNSERVER_HOST`: default dev bind address (default `172.30.150.130`)
+- `DJANGO_RUNSERVER_PORT`: default dev bind port (default `8080`)
+- `DJANGO_ALLOWED_HOSTS`: comma-separated hosts; leave blank in local debug mode to allow dev hosts/tunnels
 - `DJANGO_CSRF_TRUSTED_ORIGINS`: comma-separated origins
 - `DJANGO_TIME_ZONE`: backend timezone (default `UTC`)
 - `INTEL_LOCAL_TIME_ZONE`: analyst-facing display timezone (default `America/New_York`)
@@ -110,6 +112,8 @@ Examples: `THREATFOX_ENABLED`, `ALIENVAULT_ENABLED`, `URLHAUS_ENABLED`, `VIRUSTO
 - `INTEL_REFRESH_SCHEDULE` (default `0 2 * * *`)
 - `INTEL_REFRESH_DEFAULT_SINCE` (default `24h`)
 - `INTEL_REFRESH_TIMEOUT` (seconds, default `30`)
+- `INTEL_REFRESH_LOG_FILE` (default `BASE_DIR/var/log/refresh_intel.log`)
+- `INTEL_REFRESH_LOCK_FILE` (default `BASE_DIR/var/run/refresh_intel.lock`)
 - `INTEL_REFRESH_VIRUSTOTAL_LIMIT` (default `25`)
 - `INTEL_REFRESH_VIRUSTOTAL_THROTTLE_SECONDS` (default `16`)
 
@@ -153,11 +157,34 @@ python manage.py showmigrations
 ### Pipeline and Operations
 
 - `python manage.py refresh_intel`
+- `python manage.py refresh_intel_scheduled`
 - `python manage.py refresh_intel --provider threatfox`
 - `python manage.py refresh_intel --since 7d`
 - `python manage.py refresh_intel --dry-run`
 - `python manage.py cleanup_old_iocs`
 - `python manage.py trim_ioc_samples --limit 500`
+
+## Automated Refresh In WSL2
+
+Use external scheduling. The repository now includes `python manage.py refresh_intel_scheduled`, which wraps the existing `refresh_intel` flow, writes a logfile, and skips overlapping runs by taking a lockfile.
+
+Recommended WSL2 setup:
+
+1. Set optional paths in `.env` if you do not want the defaults:
+   `INTEL_REFRESH_LOG_FILE=/home/<user>/ThreatFoundry/var/log/refresh_intel.log`
+   `INTEL_REFRESH_LOCK_FILE=/home/<user>/ThreatFoundry/var/run/refresh_intel.lock`
+2. Verify the scheduled entrypoint manually:
+   `python manage.py refresh_intel_scheduled --no-feed-refresh`
+3. Start cron in WSL2.
+   If your distro is using systemd, `sudo systemctl enable --now cron`
+   Otherwise, `sudo service cron start`
+4. Install the cron entry with `crontab -e`:
+
+```cron
+0 2 * * * cd /home/<user>/ThreatFoundry && /home/<user>/ThreatFoundry/threatfoundry/bin/python manage.py refresh_intel_scheduled --timeout 30
+```
+
+The command itself appends to the configured logfile, records per-provider outcomes in the database, preserves provider enable/disable rules, and continues past individual provider failures.
 
 ### Utility and Validation
 

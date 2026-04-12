@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.management.commands.runserver import Command as DjangoRunserverCommand
 
 
@@ -9,8 +10,8 @@ class Command(DjangoRunserverCommand):
     `python manage.py runserver 127.0.0.1:9000`
     """
 
-    default_addr = "0.0.0.0"
-    default_port = "8080"
+    default_addr = settings.RUNSERVER_HOST
+    default_port = settings.RUNSERVER_PORT
 
     def handle(self, *args, **options):
         if not options.get("addrport"):

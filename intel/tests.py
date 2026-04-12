@@ -1,5 +1,8 @@
 import json
+import fcntl
+import tempfile
 from io import StringIO
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -7,6 +10,7 @@ from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
+from config import settings as project_settings
 from intel.models import IngestionRun, IntelIOC, ProviderRun, ProviderRunDetail
 from intel.management.commands.populate_sample_iocs import sample_ioc_payloads
 from intel.services.correlation import build_hash_correlation_context, canonical_hash_type
@@ -22,7 +26,11 @@ from intel.services.ingestion import normalize_alienvault_record, normalize_urlh
 from intel.services.provider_registry import build_provider_links, get_provider_availabilities
 from intel.services.provider_runs import ProviderRunRecorder
 from intel.tests_provider_registry import ProviderRegistryModuleTests
-from intel.services.virustotal import build_virustotal_enrichment, derive_platform_updates
+from intel.services.virustotal import (
+    VirusTotalNotFound,
+    build_virustotal_enrichment,
+    derive_platform_updates,
+)
 from intel.time_display import TIME_DISPLAY_SESSION_KEY
 
 
@@ -94,6 +102,42 @@ class AlienVaultNormalizationTests(SimpleTestCase):
         self.assertEqual(normalized["value"], "https://cdn.bad-download.example/payload.zip")
         self.assertEqual(normalized["reference_url"], "https://urlhaus.abuse.ch/url/555001/")
         self.assertEqual(normalized["external_references"][0]["provider"], "urlhaus")
+
+
+class SettingsParsingTests(SimpleTestCase):
+    def test_build_allowed_hosts_defaults_to_wildcard_in_debug(self):
+        self.assertEqual(
+            project_settings._build_allowed_hosts(
+                "",
+                debug=True,
+                runserver_host="172.30.150.130",
+            ),
+            ["*"],
+        )
+
+    def test_build_allowed_hosts_uses_explicit_csv_values(self):
+        self.assertEqual(
+            project_settings._build_allowed_hosts(
+                "localhost, 127.0.0.1 , threatfoundry.local",
+                debug=True,
+                runserver_host="172.30.150.130",
+            ),
+            ["localhost", "127.0.0.1", "threatfoundry.local"],
+        )
+
+    def test_build_csrf_trusted_origins_uses_default_dev_origins(self):
+        self.assertEqual(
+            project_settings._build_csrf_trusted_origins(
+                "",
+                runserver_host="172.30.150.130",
+                runserver_port="8080",
+            ),
+            [
+                "http://localhost:8080",
+                "http://127.0.0.1:8080",
+                "http://172.30.150.130:8080",
+            ],
+        )
 
 
 class ImportAlienVaultCommandTests(TestCase):
@@ -276,6 +320,146 @@ class RefreshIntelCommandTests(TestCase):
             ProviderRunDetail.objects.get(provider_name="alienvault").status,
             ProviderRunDetail.Status.SUCCESS,
         )
+
+    @override_settings(
+        INTEL_REFRESH_VIRUSTOTAL_LIMIT=10,
+        INTEL_REFRESH_VIRUSTOTAL_THROTTLE_SECONDS=0,
+    )
+    @patch.dict("os.environ", {"VIRUSTOTAL_API_KEY": "test-vt-key"}, clear=False)
+    @patch("intel.services.virustotal.fetch_virustotal_report")
+    def test_refresh_intel_prints_virustotal_skip_diagnostics(
+        self,
+        mock_fetch_virustotal_report,
+    ):
+        unsupported = IntelIOC.objects.create(
+            source_name="threatfox",
+            source_record_id="tf-email-1",
+            value="operator@example.test",
+            value_type="email",
+        )
+        missing = IntelIOC.objects.create(
+            source_name="alienvault",
+            source_record_id="otx-domain-1",
+            value="missing.example",
+            value_type="domain",
+        )
+
+        def fake_fetch(value, value_type, timeout=30):
+            raise VirusTotalNotFound(
+                f"VirusTotal has no report for {value_type} {value}."
+            )
+
+        mock_fetch_virustotal_report.side_effect = fake_fetch
+
+        stdout = StringIO()
+        call_command(
+            "refresh_intel",
+            provider="virustotal",
+            no_feed_refresh=True,
+            stdout=stdout,
+        )
+
+        output = stdout.getvalue()
+        self.assertIn(
+            "virustotal: skipped (fetched=2, created=0, updated=0, skipped=2)",
+            output,
+        )
+        self.assertIn(
+            "skip breakdown: already enriched=0, unsupported lookup type=1, VT not found=1, no changes after enrichment=0, error=0",
+            output,
+        )
+        self.assertIn(
+            f"IOC {unsupported.pk} value=operator@example.test type=email already_enriched=False lookup=unsupported db_changed=no reason=unsupported_lookup_type",
+            output,
+        )
+        self.assertIn(
+            f"IOC {missing.pk} value=missing.example type=domain already_enriched=False lookup=supported db_changed=no reason=not_found",
+            output,
+        )
+
+        detail = ProviderRunDetail.objects.get(provider_name="virustotal")
+        self.assertEqual(
+            detail.details["skip_breakdown"],
+            {
+                "already_enriched": 0,
+                "unsupported_lookup_type": 1,
+                "not_found": 1,
+                "no_changes_after_enrichment": 0,
+                "error": 0,
+            },
+        )
+        self.assertEqual(len(detail.details["record_diagnostics"]), 2)
+
+    @patch.dict("os.environ", {"THREATFOX_API_KEY": "test-threatfox-key"}, clear=False)
+    @patch("intel.services.refresh_pipeline.fetch_threatfox_iocs")
+    def test_refresh_intel_scheduled_logs_to_file_and_marks_run_scheduled(
+        self,
+        mock_threatfox,
+    ):
+        mock_threatfox.return_value = {
+            "data": [
+                {
+                    "id": "tf-1",
+                    "ioc": "scheduled.example",
+                    "ioc_type": "domain",
+                }
+            ]
+        }
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_file = Path(tmp_dir) / "refresh.log"
+            lock_file = Path(tmp_dir) / "refresh.lock"
+
+            stdout = StringIO()
+            call_command(
+                "refresh_intel_scheduled",
+                provider="threatfox",
+                log_file=str(log_file),
+                lock_file=str(lock_file),
+                no_feed_refresh=True,
+                stdout=stdout,
+            )
+
+            run = IngestionRun.objects.get()
+            self.assertEqual(run.trigger, "scheduled")
+            self.assertEqual(run.status, IngestionRun.Status.SUCCESS)
+            log_text = log_file.read_text()
+            self.assertIn("scheduled refresh starting", log_text)
+            self.assertIn("threatfox: success", log_text)
+            self.assertIn("scheduled refresh finished successfully", log_text)
+            self.assertIn("refresh_intel complete", stdout.getvalue())
+
+    @patch.dict("os.environ", {"THREATFOX_API_KEY": "test-threatfox-key"}, clear=False)
+    @patch("intel.services.refresh_pipeline.fetch_threatfox_iocs")
+    def test_refresh_intel_scheduled_skips_when_lock_is_held(
+        self,
+        mock_threatfox,
+    ):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_file = Path(tmp_dir) / "refresh.log"
+            lock_file = Path(tmp_dir) / "refresh.lock"
+
+            lock_file.parent.mkdir(parents=True, exist_ok=True)
+            with lock_file.open("a+", encoding="utf-8") as held_lock:
+                held_lock.write("pid=999 started_at=2026-04-12T01:00:00+00:00")
+                held_lock.flush()
+                fcntl.flock(held_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+                stdout = StringIO()
+                call_command(
+                    "refresh_intel_scheduled",
+                    provider="threatfox",
+                    log_file=str(log_file),
+                    lock_file=str(lock_file),
+                    stdout=stdout,
+                )
+
+            self.assertFalse(mock_threatfox.called)
+            self.assertEqual(IngestionRun.objects.count(), 0)
+            log_text = log_file.read_text()
+            self.assertIn("scheduled refresh skipped; another run holds", log_text)
+            self.assertIn("pid=999", log_text)
+            self.assertIn("scheduled refresh skipped; another run holds", stdout.getvalue())
 
 
 class ProviderRegistryTests(SimpleTestCase):

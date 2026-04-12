@@ -30,12 +30,22 @@ from intel.services.urlhaus import fetch_recent_urlhaus_iocs
 from intel.services.virustotal import (
     UnsupportedVirusTotalLookup,
     VirusTotalNotFound,
+    build_lookup,
     enrich_ioc_record,
     throttle_request,
 )
 
 
 logger = logging.getLogger(__name__)
+
+
+VIRUSTOTAL_SKIP_REASON_LABELS = {
+    "already_enriched": "already enriched",
+    "unsupported_lookup_type": "unsupported lookup type",
+    "not_found": "VT not found",
+    "no_changes_after_enrichment": "no changes after enrichment",
+    "error": "error",
+}
 
 
 @dataclass(frozen=True)
@@ -556,25 +566,86 @@ def _run_virustotal(
     skipped = 0
     not_found = 0
     unsupported = 0
+    diagnostics: list[dict] = []
+    skip_breakdown = {
+        "already_enriched": 0,
+        "unsupported_lookup_type": 0,
+        "not_found": 0,
+        "no_changes_after_enrichment": 0,
+        "error": 0,
+    }
 
     for index, record in enumerate(records, start=1):
+        diagnostic = _build_virustotal_record_diagnostic(record, index=index, total=len(records))
         try:
             changed = enrich_ioc_record(record, force=False, timeout=timeout_seconds)
-        except UnsupportedVirusTotalLookup:
+        except UnsupportedVirusTotalLookup as exc:
             unsupported += 1
+            skip_breakdown["unsupported_lookup_type"] += 1
+            diagnostic.update(
+                {
+                    "skip_reason": "unsupported_lookup_type",
+                    "skip_detail": str(exc),
+                    "db_changed": False,
+                }
+            )
+            diagnostics.append(diagnostic)
+            _log_provider_event("virustotal_record_evaluated", diagnostic)
             continue
-        except VirusTotalNotFound:
+        except VirusTotalNotFound as exc:
             not_found += 1
+            skip_breakdown["not_found"] += 1
+            diagnostic.update(
+                {
+                    "skip_reason": "not_found",
+                    "skip_detail": str(exc),
+                    "db_changed": False,
+                }
+            )
+            diagnostics.append(diagnostic)
+            _log_provider_event("virustotal_record_evaluated", diagnostic)
             continue
         except Exception as exc:
+            skip_breakdown["error"] += 1
+            diagnostic.update(
+                {
+                    "skip_reason": "error",
+                    "skip_detail": str(exc),
+                    "db_changed": False,
+                    "error_type": type(exc).__name__,
+                }
+            )
+            diagnostics.append(diagnostic)
+            _log_provider_event("virustotal_record_evaluated", diagnostic)
             raise RuntimeError(
                 f"VirusTotal enrichment failed for IOC {record.pk} ({record.value}): {exc}"
             ) from exc
 
         if changed:
             updated += 1
+            diagnostic.update(
+                {
+                    "skip_reason": "",
+                    "skip_detail": "",
+                    "db_changed": True,
+                }
+            )
         else:
             skipped += 1
+            skip_breakdown["no_changes_after_enrichment"] += 1
+            diagnostic.update(
+                {
+                    "skip_reason": "no_changes_after_enrichment",
+                    "skip_detail": (
+                        "enrich_ioc_record() returned False with force=False; "
+                        "the record was treated as already enriched."
+                    ),
+                    "db_changed": False,
+                }
+            )
+
+        diagnostics.append(diagnostic)
+        _log_provider_event("virustotal_record_evaluated", diagnostic)
 
         if index < len(records):
             throttle_request(settings.INTEL_REFRESH_VIRUSTOTAL_THROTTLE_SECONDS)
@@ -601,5 +672,52 @@ def _run_virustotal(
             "not_found": not_found,
             "unsupported": unsupported,
             "already_enriched": skipped,
+            "skip_breakdown": skip_breakdown,
+            "record_diagnostics": diagnostics,
         },
+        error_summary=_summarize_virustotal_skip_breakdown(skip_breakdown)
+        if total_skipped
+        else "",
     )
+
+
+def _build_virustotal_record_diagnostic(record: IntelIOC, *, index: int, total: int) -> dict:
+    enrichment_payloads = record.enrichment_payloads or {}
+    already_enriched = "virustotal" in enrichment_payloads
+    diagnostic = {
+        "ioc_id": record.pk,
+        "index": index,
+        "total": total,
+        "value": record.value,
+        "value_type": record.value_type,
+        "already_enriched": already_enriched,
+        "enrichment_payload_type": type(enrichment_payloads).__name__,
+        "lookup_supported": False,
+        "lookup_object_type": "",
+        "lookup_value": "",
+    }
+
+    try:
+        lookup = build_lookup(record.value, record.value_type)
+    except UnsupportedVirusTotalLookup as exc:
+        diagnostic["lookup_support_detail"] = str(exc)
+        return diagnostic
+
+    diagnostic.update(
+        {
+            "lookup_supported": True,
+            "lookup_object_type": lookup.object_type,
+            "lookup_value": lookup.lookup_value,
+            "lookup_support_detail": "",
+        }
+    )
+    return diagnostic
+
+
+def _summarize_virustotal_skip_breakdown(skip_breakdown: dict[str, int]) -> str:
+    parts = []
+    for key, label in VIRUSTOTAL_SKIP_REASON_LABELS.items():
+        count = int(skip_breakdown.get(key) or 0)
+        if count:
+            parts.append(f"{label}={count}")
+    return ", ".join(parts)

@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+
 from django.core.exceptions import ImproperlyConfigured
 
 try:
@@ -27,7 +28,47 @@ except ImportError:  # pragma: no cover - optional convenience dependency
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
+RUNSERVER_HOST = os.getenv("DJANGO_RUNSERVER_HOST", "172.30.150.130")
+RUNSERVER_PORT = os.getenv("DJANGO_RUNSERVER_PORT", "8080")
+
 DEBUG = os.getenv("DJANGO_DEBUG", "false").lower() == "true"
+
+
+def _parse_csv_env(value):
+    return [item.strip() for item in (value or "").split(",") if item.strip()]
+
+
+def _text_env(value, default=""):
+    text = (value or "").strip()
+    return text or default
+
+
+def _build_allowed_hosts(raw_hosts, *, debug, runserver_host):
+    configured_hosts = _parse_csv_env(raw_hosts)
+    if configured_hosts:
+        return configured_hosts
+    if debug:
+        # Keep local development and tunnel access working unless the user
+        # explicitly opts into a stricter host allowlist.
+        return ["*"]
+    return _parse_csv_env(f"localhost,127.0.0.1,{runserver_host}")
+
+
+def _build_csrf_trusted_origins(raw_origins, *, runserver_host, runserver_port):
+    configured_origins = _parse_csv_env(raw_origins)
+    if configured_origins:
+        return configured_origins
+    return _parse_csv_env(
+        ",".join(
+            (
+                f"http://localhost:{runserver_port}",
+                f"http://127.0.0.1:{runserver_port}",
+                f"http://{runserver_host}:{runserver_port}",
+            )
+        )
+    )
+
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "")
 if not SECRET_KEY:
     if DEBUG:
@@ -36,16 +77,16 @@ if not SECRET_KEY:
         raise ImproperlyConfigured(
             "DJANGO_SECRET_KEY is required when DJANGO_DEBUG is false."
         )
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
-    if host.strip()
-]
-CSRF_TRUSTED_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
-    if origin.strip()
-]
+ALLOWED_HOSTS = _build_allowed_hosts(
+    os.getenv("DJANGO_ALLOWED_HOSTS"),
+    debug=DEBUG,
+    runserver_host=RUNSERVER_HOST,
+)
+CSRF_TRUSTED_ORIGINS = _build_csrf_trusted_origins(
+    os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS"),
+    runserver_host=RUNSERVER_HOST,
+    runserver_port=RUNSERVER_PORT,
+)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -116,6 +157,14 @@ INTEL_LOCAL_TIME_ZONE = os.getenv("INTEL_LOCAL_TIME_ZONE", "America/New_York")
 INTEL_REFRESH_SCHEDULE = os.getenv("INTEL_REFRESH_SCHEDULE", "0 2 * * *")
 INTEL_REFRESH_DEFAULT_SINCE = os.getenv("INTEL_REFRESH_DEFAULT_SINCE", "24h")
 INTEL_REFRESH_TIMEOUT = int(os.getenv("INTEL_REFRESH_TIMEOUT", "30"))
+INTEL_REFRESH_LOG_FILE = _text_env(
+    os.getenv("INTEL_REFRESH_LOG_FILE"),
+    str(BASE_DIR / "var" / "log" / "refresh_intel.log"),
+)
+INTEL_REFRESH_LOCK_FILE = _text_env(
+    os.getenv("INTEL_REFRESH_LOCK_FILE"),
+    str(BASE_DIR / "var" / "run" / "refresh_intel.lock"),
+)
 INTEL_REFRESH_VIRUSTOTAL_LIMIT = int(
     os.getenv("INTEL_REFRESH_VIRUSTOTAL_LIMIT", "25")
 )
