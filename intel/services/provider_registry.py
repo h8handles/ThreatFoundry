@@ -363,15 +363,6 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
         enabled_by_default=False,
         note="Architecture placeholder only; no free canonical actor feed is wired as active functionality yet.",
     ),
-    # Domain enrichment provider – used by the new domain enrichment service
-    "domain_enrichment": ProviderSpec(
-        key="domain_enrichment",
-        label="Domain Enrichment",
-        category="enrichment",
-        required_env_vars=("WHOIS_API_KEY",),
-        note="Enrich domain IOCs with WHOIS, DNS, SSL, and reputation data.",
-        link_builder=None,
-    ),
 }
 
 
@@ -408,3 +399,4 @@ def build_provider_links(
         if link.url and link.url not in unique:
             unique[link.url] = link
     return [link.as_dict() for link in unique.values()]
+

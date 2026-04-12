@@ -1,7 +1,7 @@
-from django.urls import path
-from .views import export_hunt_results
+"""
+Hunts URLs are intentionally disabled until the app is fully wired.
 
-urlpatterns = [
-    # other URLs...
-    path('export-csv/', export_hunt_results, name='export-hunt-results'),
-]
+Keeping this module import-safe prevents runtime failures if included by mistake.
+"""
+
+urlpatterns = []
