@@ -14,53 +14,82 @@
     {% block page_scripts %}{% endblock %}
 </head>
 <body>
-    <div class="app-shell">
-        <header class="topbar">
-            <div class="brand-lockup">
-                <img class="brand-mark" src="{% static 'intel/threatfoundry-mark.svg' %}" alt="ThreatFoundry logo">
-                <div>
-                    <p class="eyebrow">Threat Intelligence Console</p>
-                    <a class="brand" href="{% url 'intel:dashboard' %}">
-                        <span class="brand-muted">Threat</span><span class="brand-accent">Foundry</span>
-                    </a>
-                </div>
-            </div>
-            <nav class="topbar-actions">
-                {% if user.is_authenticated and authz.can_view_app %}
-                    <a class="topbar-link" href="{% url 'intel:dashboard' %}">Dashboard</a>
+    {% if user.is_authenticated and authz.can_view_app %}
+        <div class="platform-shell">
+            <aside class="app-sidebar">
+                <a class="sidebar-brand" href="{% url 'intel:dashboard' %}">
+                    <img class="sidebar-brand-mark" src="{% static 'intel/threatfoundry-mark.svg' %}" alt="ThreatFoundry logo">
+                    <span class="sidebar-brand-text">
+                        <span class="sidebar-brand-title">ThreatFoundry</span>
+                        <span class="sidebar-brand-subtitle">Threat Intelligence Console</span>
+                    </span>
+                </a>
+
+                <nav class="sidebar-nav">
+                    <a class="sidebar-nav-link {% if request.resolver_match.url_name == 'dashboard' %}is-active{% endif %}" href="{% url 'intel:dashboard' %}">Dashboard</a>
                     {% if authz.can_use_assistant %}
-                        <a class="topbar-link" href="{% url 'intel:analyst_chat' %}">Analyst Chat</a>
+                        <a class="sidebar-nav-link {% if request.resolver_match.url_name == 'analyst_chat' %}is-active{% endif %}" href="{% url 'intel:analyst_chat' %}">Analyst Assistant</a>
                     {% endif %}
-                    <a class="topbar-link" href="{% url 'intel:malware_family' %}">Malware Workspaces</a>
-                    <a class="topbar-link" href="{% url 'intel:documentation' %}">Documentation</a>
+                    <a class="sidebar-nav-link {% if 'malware' in request.path %}is-active{% endif %}" href="{% url 'intel:malware_family' %}">Malware Workspaces</a>
+                    <a class="sidebar-nav-link {% if 'documentation' in request.path %}is-active{% endif %}" href="{% url 'intel:documentation' %}">Documentation</a>
                     {% if authz.can_administer %}
-                        <a class="topbar-link" href="/admin/">Admin</a>
+                        <a class="sidebar-nav-link" href="/admin/">Admin</a>
                     {% endif %}
-                    <span class="topbar-link">Role: {{ authz.role_label }}</span>
-                    <form class="time-format-form" method="post" action="{% url 'intel:set_time_display' %}">
-                        {% csrf_token %}
-                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                        <label for="time-display-option">Time format</label>
-                        <select id="time-display-option" name="time_display_option" onchange="this.form.submit()">
-                            {% for option in time_display_choices %}
-                                <option value="{{ option.key }}" {% if time_display_option == option.key %}selected{% endif %}>
-                                    {{ option.label }}
-                                </option>
-                            {% endfor %}
-                        </select>
-                    </form>
-                    <form method="post" action="{% url 'logout' %}">
-                        {% csrf_token %}
-                        <button class="topbar-link" type="submit">Logout</button>
-                    </form>
-                {% else %}
-                    <a class="topbar-link" href="{% url 'login' %}">Login</a>
-                {% endif %}
-            </nav>
-        </header>
-        <main class="workspace">
+                </nav>
+
+                <div class="sidebar-meta">
+                    <p class="sidebar-meta-label">Access</p>
+                    <p class="sidebar-meta-value">{{ request.user.username }}</p>
+                    <p class="sidebar-meta-value">{{ authz.role_label }}</p>
+                </div>
+            </aside>
+
+            <div class="app-stage">
+                <header class="app-header">
+                    <div class="app-header-copy">
+                        <p class="app-header-kicker">{% block page_kicker %}Security Operations{% endblock %}</p>
+                        <h1>{% block page_heading %}Threat Intelligence Workspace{% endblock %}</h1>
+                        <p class="app-header-subtitle">{% block page_subtitle %}Operational visibility for indicators, malware clusters, and analyst investigations.{% endblock %}</p>
+                    </div>
+                    <div class="app-header-controls">
+                        <form class="time-format-form" method="post" action="{% url 'intel:set_time_display' %}">
+                            {% csrf_token %}
+                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                            <label for="time-display-option">Time</label>
+                            <select id="time-display-option" name="time_display_option" onchange="this.form.submit()">
+                                {% for option in time_display_choices %}
+                                    <option value="{{ option.key }}" {% if time_display_option == option.key %}selected{% endif %}>
+                                        {{ option.label }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </form>
+                        {% block page_header_actions %}{% endblock %}
+                        <form method="post" action="{% url 'logout' %}">
+                            {% csrf_token %}
+                            <button class="secondary-button app-logout-button" type="submit">Logout</button>
+                        </form>
+                    </div>
+                </header>
+    {% else %}
+        <div class="public-shell">
+            <header class="public-header">
+                <a class="sidebar-brand" href="{% url 'intel:dashboard' %}">
+                    <img class="sidebar-brand-mark" src="{% static 'intel/threatfoundry-mark.svg' %}" alt="ThreatFoundry logo">
+                    <span class="sidebar-brand-text">
+                        <span class="sidebar-brand-title">ThreatFoundry</span>
+                        <span class="sidebar-brand-subtitle">Threat Intelligence Console</span>
+                    </span>
+                </a>
+                <a class="secondary-button" href="{% url 'login' %}">Login</a>
+            </header>
+    {% endif %}
+        <main class="{% if user.is_authenticated and authz.can_view_app %}app-content{% else %}public-content{% endif %}">
             {% block content %}{% endblock %}
         </main>
+        {% if user.is_authenticated and authz.can_view_app %}
+            </div>
+        {% endif %}
     </div>
 </body>
 </html>

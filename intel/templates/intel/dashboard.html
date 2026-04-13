@@ -2,7 +2,18 @@
 {% load static %}
 {% load intel_datetime %}
 
-{% block title %}ThreatFoundry{% endblock %}
+{% block title %}ThreatFoundry | Dashboard{% endblock %}
+{% block page_kicker %}Security Operations{% endblock %}
+{% block page_heading %}Threat Intelligence Dashboard{% endblock %}
+{% block page_subtitle %}Monitor indicator volume, severity patterns, and source health across your current hunt scope.{% endblock %}
+
+{% block page_header_actions %}
+    {% if request.GET.urlencode %}
+        <a class="secondary-button" href="{% url 'intel:analyst_chat' %}?{{ request.GET.urlencode }}">Open Analyst Assistant</a>
+    {% elif authz.can_use_assistant %}
+        <a class="secondary-button" href="{% url 'intel:analyst_chat' %}">Open Analyst Assistant</a>
+    {% endif %}
+{% endblock %}
 
 {% block content %}
 {{ time_series|json_script:"time-series-data" }}
@@ -10,9 +21,313 @@
 {{ malware_distribution|json_script:"malware-distribution-data" }}
 {{ confidence_distribution|json_script:"confidence-distribution-data" }}
 
-<section class="workspace-grid">
-    <aside class="filter-rail panel">
-        <div class="panel-header">
+<section class="dashboard-shell">
+    <div class="dashboard-main">
+        <section class="kpi-strip">
+            <article class="kpi-tile">
+                <p class="kpi-label">Total IOCs</p>
+                <p class="kpi-number">{{ kpis.total_iocs }}</p>
+                <p class="kpi-footnote">Indicators in current scope</p>
+            </article>
+            <article class="kpi-tile">
+                <p class="kpi-label">Average Confidence</p>
+                <p class="kpi-number">
+                    {% if kpis.average_confidence is not None %}
+                        {{ kpis.average_confidence|floatformat:1 }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </p>
+                <p class="kpi-footnote">Derived and source confidence merged</p>
+            </article>
+            <article class="kpi-tile">
+                <p class="kpi-label">Malware Families</p>
+                <p class="kpi-number">{{ kpis.malware_family_count }}</p>
+                <p class="kpi-footnote">Distinct tracked clusters</p>
+            </article>
+            <article class="kpi-tile">
+                <p class="kpi-label">IOC Types</p>
+                <p class="kpi-number">{{ kpis.ioc_type_count }}</p>
+                <p class="kpi-footnote">Distinct indicator formats</p>
+            </article>
+            <article class="kpi-tile">
+                <p class="kpi-label">Newest Ingest</p>
+                <p class="kpi-number kpi-number-small">
+                    {% if kpis.newest_ingest %}
+                        {% display_datetime kpis.newest_ingest %}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </p>
+                <p class="kpi-footnote">Latest ingestion timestamp</p>
+            </article>
+            <article class="kpi-tile">
+                <p class="kpi-label">Oldest IOC In Scope</p>
+                <p class="kpi-number kpi-number-small">
+                    {% if kpis.oldest_timeline %}
+                        {% display_datetime kpis.oldest_timeline %}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </p>
+                <p class="kpi-footnote">Historical floor for filtered set</p>
+            </article>
+        </section>
+
+        <section class="insight-grid">
+            <article class="panel insight-panel insight-panel-wide">
+                <header class="section-header">
+                    <div>
+                        <p class="eyebrow">Trend</p>
+                        <h2>Indicator Volume Over Time</h2>
+                    </div>
+                </header>
+                {% if has_data %}
+                    <div class="chart-frame chart-frame-timeline">
+                        <canvas id="time-series-chart"></canvas>
+                    </div>
+                {% else %}
+                    <div class="empty-state">
+                        <h3>No timeline data available</h3>
+                        <p>Import or ingest additional records to populate trend analysis.</p>
+                    </div>
+                {% endif %}
+            </article>
+
+            <article class="panel insight-panel">
+                <header class="section-header">
+                    <div>
+                        <p class="eyebrow">Severity</p>
+                        <h2>Confidence Distribution</h2>
+                    </div>
+                </header>
+                {% if has_data %}
+                    <div class="chart-frame chart-frame-standard">
+                        <canvas id="confidence-distribution-chart"></canvas>
+                    </div>
+                {% else %}
+                    <div class="empty-state compact-empty"><p>No confidence distribution in scope.</p></div>
+                {% endif %}
+            </article>
+
+            <article class="panel insight-panel">
+                <header class="section-header">
+                    <div>
+                        <p class="eyebrow">Source Contribution</p>
+                        <h2>Top Malware Families</h2>
+                    </div>
+                </header>
+                {% if has_data %}
+                    <div class="chart-frame chart-frame-standard">
+                        <canvas id="malware-distribution-chart"></canvas>
+                    </div>
+                {% else %}
+                    <div class="empty-state compact-empty"><p>No malware family data available.</p></div>
+                {% endif %}
+            </article>
+
+            <article class="panel insight-panel">
+                <header class="section-header">
+                    <div>
+                        <p class="eyebrow">Composition</p>
+                        <h2>Indicator Type Mix</h2>
+                    </div>
+                </header>
+                {% if has_data %}
+                    <div class="chart-frame chart-frame-standard">
+                        <canvas id="type-distribution-chart"></canvas>
+                    </div>
+                {% else %}
+                    <div class="empty-state compact-empty"><p>No IOC type data in scope.</p></div>
+                {% endif %}
+            </article>
+
+            <article class="panel insight-panel anomaly-panel">
+                <header class="section-header">
+                    <div>
+                        <p class="eyebrow">Anomaly Watch</p>
+                        <h2>Threat And Tag Signals</h2>
+                    </div>
+                </header>
+                <div class="context-block">
+                    <p class="section-title">Threat Type Snapshot</p>
+                    {% if threat_distribution %}
+                        <ul class="rank-list">
+                            {% for item in threat_distribution %}
+                                <li>
+                                    <span>{{ item.threat_bucket }}</span>
+                                    <strong>{{ item.count }}</strong>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="muted">Threat labels are not present in the current scope.</p>
+                    {% endif %}
+                </div>
+                <div class="context-block">
+                    <p class="section-title">Top Tags</p>
+                    {% if top_tags %}
+                        <div class="chip-row">
+                            {% for tag in top_tags %}
+                                <span class="chip chip-strong">{{ tag.label }} <em>{{ tag.count }}</em></span>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="muted">No tag concentration detected.</p>
+                    {% endif %}
+                </div>
+            </article>
+        </section>
+
+        {% if filters.search %}
+            <section class="panel investigation-queue">
+                <header class="section-header">
+                    <div>
+                        <p class="eyebrow">Search Correlation</p>
+                        <h2>Aggregated IOC Blades</h2>
+                    </div>
+                    <p class="muted">One blade per IOC value with merged source context and references.</p>
+                </header>
+                {% if ioc_blades %}
+                    <div class="family-directory">
+                        {% for blade in ioc_blades %}
+                            <a class="family-card" href="{{ blade.url }}">
+                                <span class="family-card-label">{{ blade.value }}</span>
+                                <span class="family-card-meta">{{ blade.type_label }}</span>
+                                <strong class="family-card-count">{{ blade.record_count }} record{{ blade.record_count|pluralize }}</strong>
+                                <span class="family-card-meta">Sources: {{ blade.source_summary }}</span>
+                                <span class="family-card-meta">Threats: {{ blade.threat_summary }}</span>
+                                <span class="family-card-meta">Families: {{ blade.malware_summary }}</span>
+                            </a>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="empty-state">
+                        <h3>No IOC blades matched this query</h3>
+                        <p>Broaden the search or reduce active filters.</p>
+                    </div>
+                {% endif %}
+            </section>
+        {% endif %}
+
+        <section class="panel table-panel activity-panel">
+            <header class="section-header">
+                <div>
+                    <p class="eyebrow">Recent Activity</p>
+                    <h2>Latest Indicators</h2>
+                </div>
+                <div class="table-toolbar">
+                    <p class="muted">Showing {{ pagination.start_index }}-{{ pagination.end_index }} of {{ pagination.total_count }}</p>
+                    <form class="page-size-form" method="get">
+                        <label>
+                            <span>Rows</span>
+                            <select name="page_size" onchange="window.location.href=this.value">
+                                {% for option in page_size_options %}
+                                    <option value="{{ option.url }}" {% if option.selected %}selected{% endif %}>{{ option.value }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                    </form>
+                </div>
+            </header>
+
+            {% if recent_ioc_rows %}
+                <div class="table-wrap">
+                    <table class="intel-table">
+                        <thead>
+                            <tr>
+                                <th><a class="sort-link{% if sort_headers.value.active %} is-active{% endif %}" href="{{ sort_headers.value.url }}">Indicator{% if sort_headers.value.indicator %} <span>{{ sort_headers.value.indicator }}</span>{% endif %}</a></th>
+                                <th><a class="sort-link{% if sort_headers.type.active %} is-active{% endif %}" href="{{ sort_headers.type.url }}">Type{% if sort_headers.type.indicator %} <span>{{ sort_headers.type.indicator }}</span>{% endif %}</a></th>
+                                <th>Investigation Context</th>
+                                <th><a class="sort-link{% if sort_headers.observed.active %} is-active{% endif %}" href="{{ sort_headers.observed.url }}">Observed{% if sort_headers.observed.indicator %} <span>{{ sort_headers.observed.indicator }}</span>{% endif %}</a></th>
+                                <th><a class="sort-link{% if sort_headers.ingested.active %} is-active{% endif %}" href="{{ sort_headers.ingested.url }}">Ingested{% if sort_headers.ingested.indicator %} <span>{{ sort_headers.ingested.indicator }}</span>{% endif %}</a></th>
+                                <th><a class="sort-link{% if sort_headers.source.active %} is-active{% endif %}" href="{{ sort_headers.source.url }}">Source{% if sort_headers.source.indicator %} <span>{{ sort_headers.source.indicator }}</span>{% endif %}</a></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in recent_ioc_rows %}
+                                {% with record=row.record %}
+                                <tr class="table-row-link" data-href="{% url 'intel:ioc_detail' record.pk %}">
+                                    <td data-label="Indicator">
+                                        <div class="value-cell">
+                                            <a href="{% url 'intel:ioc_detail' record.pk %}">{{ record.value }}</a>
+                                            {% if row.tag_list %}
+                                                <span class="inline-tags">{{ row.tag_list|join:", " }}</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td data-label="Type">{{ row.type_label }}</td>
+                                    <td data-label="Investigation Context">
+                                        <div class="value-cell">
+                                            <span class="summary-title">{{ row.summary_title }}</span>
+                                            {% if row.malware_family_url %}
+                                                <a class="cluster-link" href="{{ row.malware_family_url }}">{{ row.malware_family }}</a>
+                                            {% endif %}
+                                            {% if row.summary_meta %}
+                                                <div class="chip-row data-chip-row">
+                                                    {% for meta in row.summary_meta %}
+                                                        <span class="chip data-chip">{{ meta }}</span>
+                                                    {% endfor %}
+                                                </div>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td data-label="Observed">{% display_datetime row.observed_at %}</td>
+                                    <td data-label="Ingested">{% display_datetime record.last_ingested_at %}</td>
+                                    <td data-label="Source">
+                                        <div class="value-cell">
+                                            <div class="chip-row">
+                                                {% for badge in row.source_badges %}
+                                                    <span class="chip chip-strong">{{ badge }}</span>
+                                                {% endfor %}
+                                            </div>
+                                            {% if row.source_links %}
+                                                <div class="reference-link-list">
+                                                    {% for link in row.source_links %}
+                                                        <a href="{{ link.url }}" target="_blank" rel="noreferrer">{{ link.label }}</a>
+                                                    {% endfor %}
+                                                </div>
+                                            {% else %}
+                                                <span class="inline-tags">No reference links</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endwith %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if page_obj.paginator.num_pages > 1 %}
+                    <div class="pagination-bar">
+                        <div class="pagination-copy">
+                            <span>Page {{ pagination.page_number }} of {{ pagination.num_pages }}</span>
+                        </div>
+                        <div class="pagination-actions">
+                            {% if pagination.has_previous %}
+                                <a class="secondary-button pagination-link" href="{{ pagination.previous_url }}">Previous</a>
+                            {% else %}
+                                <span class="secondary-button pagination-link pagination-link-disabled">Previous</span>
+                            {% endif %}
+                            {% if pagination.has_next %}
+                                <a class="secondary-button pagination-link" href="{{ pagination.next_url }}">Next</a>
+                            {% else %}
+                                <span class="secondary-button pagination-link pagination-link-disabled">Next</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endif %}
+            {% else %}
+                <div class="empty-state">
+                    <h3>No indicators match the current scope</h3>
+                    <p>Clear filters or import new data to resume analyst activity.</p>
+                </div>
+            {% endif %}
+        </section>
+    </div>
+
+    <aside class="dashboard-rail panel">
+        <header class="section-header">
             <div>
                 <p class="eyebrow">Hunt Controls</p>
                 <h2>Filter Scope</h2>
@@ -20,73 +335,65 @@
             {% if has_active_filters %}
                 <a class="ghost-link" href="{% url 'intel:dashboard' %}">Clear all</a>
             {% endif %}
-        </div>
+        </header>
 
         <form class="filter-form" method="get">
             <input type="hidden" name="page" value="1">
             <input type="hidden" name="page_size" value="{{ filters.page_size }}">
             <label>
-                <span>Search IOC value</span>
+                <span>Search IOC Value</span>
                 <input type="text" name="search" value="{{ filters.search }}" placeholder="domain, hash, url, reporter">
             </label>
-
             <label>
-                <span>Tag search</span>
-                <input type="text" name="tag" value="{{ filters.tag }}" placeholder="ClearFake, stealer, phishing">
+                <span>Tag Search</span>
+                <input type="text" name="tag" value="{{ filters.tag }}" placeholder="stealer, phishing, botnet">
             </label>
-
             <label>
-                <span>Start date</span>
+                <span>Start Date</span>
                 <input type="date" name="start_date" value="{{ filters.start_date|date:'Y-m-d' }}">
             </label>
-
             <label>
-                <span>End date</span>
+                <span>End Date</span>
                 <input type="date" name="end_date" value="{{ filters.end_date|date:'Y-m-d' }}">
             </label>
-
             <label>
-                <span>IOC type</span>
+                <span>IOC Type</span>
                 <select name="value_type">
-                    <option value="">All types</option>
+                    <option value="">All Types</option>
                     {% for value_type in filter_options.value_types %}
                         <option value="{{ value_type }}" {% if filters.value_type == value_type %}selected{% endif %}>{{ value_type }}</option>
                     {% endfor %}
                 </select>
             </label>
-
             <label>
-                <span>Malware family</span>
+                <span>Malware Family</span>
                 <select name="malware_family">
-                    <option value="">All families</option>
+                    <option value="">All Families</option>
                     {% for family in filter_options.malware_families %}
                         <option value="{{ family }}" {% if filters.malware_family == family %}selected{% endif %}>{{ family }}</option>
                     {% endfor %}
                 </select>
             </label>
-
             <label>
-                <span>Threat type</span>
+                <span>Threat Type</span>
                 <select name="threat_type">
-                    <option value="">All threats</option>
+                    <option value="">All Threats</option>
                     {% for threat in filter_options.threat_types %}
                         <option value="{{ threat }}" {% if filters.threat_type == threat %}selected{% endif %}>{{ threat }}</option>
                     {% endfor %}
                 </select>
             </label>
-
             <label>
                 <span>Confidence</span>
                 <select name="confidence_band">
-                    <option value="">All confidence</option>
+                    <option value="">All Levels</option>
                     {% for band in filter_options.confidence_bands %}
                         <option value="{{ band }}" {% if filters.confidence_band == band %}selected{% endif %}>{{ band }}</option>
                     {% endfor %}
                 </select>
             </label>
-
             <div class="filter-form-actions">
-                <button class="primary-button" type="submit">Apply filters</button>
+                <button class="primary-button" type="submit">Apply Filters</button>
                 {% if request.GET.urlencode %}
                     <a class="secondary-button" href="{% url 'intel:dashboard_export_csv' %}?{{ request.GET.urlencode }}">Export CSV</a>
                 {% else %}
@@ -97,14 +404,14 @@
 
         <div class="rail-section">
             <div class="stat-line">
-                <span>Filtered records</span>
+                <span>Filtered Records</span>
                 <strong>{{ result_count }}</strong>
             </div>
         </div>
 
         {% if active_filters %}
             <div class="rail-section">
-                <p class="section-title">Active filters</p>
+                <p class="section-title">Active Filters</p>
                 <div class="chip-row">
                     {% for item in active_filters %}
                         <span class="chip">{{ item.label }}: {{ item.value }}</span>
@@ -125,381 +432,14 @@
                                 |
                                 {% if provider.configured %}Configured{% else %}Not configured{% endif %}
                             </span>
-                            <span class="inline-tags">
-                                Last success:
-                                {% if provider.last_success %}
-                                    {% display_datetime provider.last_success %}
-                                {% else %}
-                                    N/A
-                                {% endif %}
-                            </span>
-                            <span class="inline-tags">
-                                Last failure:
-                                {% if provider.last_failure %}
-                                    {% display_datetime provider.last_failure %}
-                                {% else %}
-                                    N/A
-                                {% endif %}
-                            </span>
-                            <span class="inline-tags">Last error: {{ provider.last_error|default:"N/A" }}</span>
+                            <span class="inline-tags">Last success: {% if provider.last_success %}{% display_datetime provider.last_success %}{% else %}N/A{% endif %}</span>
+                            <span class="inline-tags">Last failure: {% if provider.last_failure %}{% display_datetime provider.last_failure %}{% else %}N/A{% endif %}</span>
                         </div>
-                        <strong class="provider-health-state provider-health-{{ provider.health_state }}">
-                            {{ provider.health_state|title }}
-                        </strong>
+                        <strong class="provider-health-state provider-health-{{ provider.health_state }}">{{ provider.health_state|title }}</strong>
                     </li>
                 {% endfor %}
             </ul>
         </div>
     </aside>
-
-    <div class="main-column">
-        <section class="hero panel">
-            <div class="panel-header panel-header-tight hero-header">
-                <div class="hero-copy">
-                    <div class="hero-brand">
-                        <img class="hero-mark" src="{% static 'intel/threatfoundry-mark.svg' %}" alt="ThreatFoundry shield logo">
-                        <div>
-                            <p class="eyebrow">Analyst Workspace</p>
-                            <h1><span class="brand-muted">Threat</span><span class="brand-accent">Foundry</span></h1>
-                        </div>
-                    </div>
-                    <p class="hero-subtitle">IOC intelligence forge</p>
-                </div>
-                <p class="muted copy-max">
-                    Investigate recent indicators, pivot by malware family and threat type, and shape raw ThreatFox data into an analyst-ready threat hunting workspace.
-                </p>
-            </div>
-            <div class="hero-actions">
-                {% if request.GET.urlencode %}
-                    <a class="ghost-link" href="{% url 'intel:analyst_chat' %}?{{ request.GET.urlencode }}">Open analyst chat</a>
-                {% else %}
-                    <a class="ghost-link" href="{% url 'intel:analyst_chat' %}">Open analyst chat</a>
-                {% endif %}
-                <a class="ghost-link" href="{% url 'intel:malware_family' %}">Browse malware workspaces</a>
-            </div>
-        </section>
-
-        <section class="kpi-grid">
-            <article class="kpi-card panel">
-                <span class="kpi-label">Total IOCs</span>
-                <strong class="kpi-value">{{ kpis.total_iocs }}</strong>
-                <span class="kpi-note">Rows in current scope</span>
-            </article>
-            <article class="kpi-card panel">
-                <span class="kpi-label">Malware Families</span>
-                <strong class="kpi-value">{{ kpis.malware_family_count }}</strong>
-                <span class="kpi-note">Distinct family buckets</span>
-            </article>
-            <article class="kpi-card panel">
-                <span class="kpi-label">IOC Types</span>
-                <strong class="kpi-value">{{ kpis.ioc_type_count }}</strong>
-                <span class="kpi-note">Distinct indicator types</span>
-            </article>
-            <article class="kpi-card panel">
-                <span class="kpi-label">Unique Tags</span>
-                <strong class="kpi-value">{{ kpis.unique_tag_count }}</strong>
-                <span class="kpi-note">Normalized tag values</span>
-            </article>
-            <article class="kpi-card panel">
-                <span class="kpi-label">Average Confidence</span>
-                <strong class="kpi-value">
-                    {% if kpis.average_confidence is not None %}
-                        {{ kpis.average_confidence|floatformat:1 }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </strong>
-                <span class="kpi-note">Across visible records</span>
-            </article>
-            <article class="kpi-card panel">
-                <span class="kpi-label">Newest Ingest</span>
-                <strong class="kpi-value kpi-value-small">
-                    {% if kpis.newest_ingest %}
-                        {% display_datetime kpis.newest_ingest %}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </strong>
-                <span class="kpi-note">Latest local ingest timestamp</span>
-            </article>
-            <article class="kpi-card panel">
-                <span class="kpi-label">Oldest IOC In Range</span>
-                <strong class="kpi-value kpi-value-small">
-                    {% if kpis.oldest_timeline %}
-                        {% display_datetime kpis.oldest_timeline %}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </strong>
-                <span class="kpi-note">Based on timeline field</span>
-            </article>
-        </section>
-
-        <section class="chart-grid">
-            <article class="panel chart-panel chart-panel-wide">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">Timeline</p>
-                        <h2>IOC Volume Over Time</h2>
-                    </div>
-                </div>
-                {% if has_data %}
-                    <div class="chart-frame chart-frame-timeline">
-                        <canvas id="time-series-chart"></canvas>
-                    </div>
-                {% else %}
-                    <div class="empty-state">
-                        <h3>No IOC activity available</h3>
-                        <p>Import ThreatFox data and the timeline will populate automatically.</p>
-                    </div>
-                {% endif %}
-            </article>
-
-            <article class="panel chart-panel">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">Distribution</p>
-                        <h2>IOC Types</h2>
-                    </div>
-                </div>
-                {% if has_data %}
-                    <div class="chart-frame chart-frame-standard">
-                        <canvas id="type-distribution-chart"></canvas>
-                    </div>
-                {% else %}
-                    <div class="empty-state compact-empty">
-                        <p>No type data yet.</p>
-                    </div>
-                {% endif %}
-            </article>
-
-            <article class="panel chart-panel">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">Distribution</p>
-                        <h2>Confidence Bands</h2>
-                    </div>
-                </div>
-                {% if has_data %}
-                    <div class="chart-frame chart-frame-standard">
-                        <canvas id="confidence-distribution-chart"></canvas>
-                    </div>
-                {% else %}
-                    <div class="empty-state compact-empty">
-                        <p>No confidence data yet.</p>
-                    </div>
-                {% endif %}
-            </article>
-
-            <article class="panel chart-panel">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">Top Families</p>
-                        <h2>Malware Families</h2>
-                    </div>
-                    <p class="muted">Open a family workspace from the list below.</p>
-                </div>
-                {% if has_data %}
-                    <div class="chart-frame chart-frame-tall">
-                        <canvas id="malware-distribution-chart"></canvas>
-                    </div>
-                    {% if malware_clusters %}
-                        <div class="context-block">
-                            <div class="chip-row">
-                                {% for cluster in malware_clusters %}
-                                    <a class="chip chip-strong" href="{{ cluster.url }}">{{ cluster.label }} <em>{{ cluster.count }}</em></a>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    {% endif %}
-                {% else %}
-                    <div class="empty-state compact-empty">
-                        <p>No malware family data yet.</p>
-                    </div>
-                {% endif %}
-            </article>
-
-            <article class="panel context-panel">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">Context</p>
-                        <h2>Tags And Threat Types</h2>
-                    </div>
-                </div>
-                <div class="context-block">
-                    <p class="section-title">Top tags</p>
-                    {% if top_tags %}
-                        <div class="chip-row">
-                            {% for tag in top_tags %}
-                                <span class="chip chip-strong">{{ tag.label }} <em>{{ tag.count }}</em></span>
-                            {% endfor %}
-                        </div>
-                    {% else %}
-                        <p class="muted">No tags available in the current scope.</p>
-                    {% endif %}
-                </div>
-                <div class="context-block">
-                    <p class="section-title">Threat type snapshot</p>
-                    {% if threat_distribution %}
-                        <ul class="rank-list">
-                            {% for item in threat_distribution %}
-                                <li>
-                                    <span>{{ item.threat_bucket }}</span>
-                                    <strong>{{ item.count }}</strong>
-                                </li>
-                            {% endfor %}
-                        </ul>
-                    {% else %}
-                        <p class="muted">Threat type values are not populated for this scope.</p>
-                    {% endif %}
-                </div>
-            </article>
-        </section>
-
-        {% if filters.search %}
-        <section class="panel">
-            <div class="panel-header">
-                <div>
-                    <p class="eyebrow">IOC Search</p>
-                    <h2>Aggregated IOC Blades</h2>
-                </div>
-                <p class="muted">One blade per IOC value, with all matching platform sources combined.</p>
-            </div>
-            {% if ioc_blades %}
-                <div class="family-directory">
-                    {% for blade in ioc_blades %}
-                        <a class="family-card" href="{{ blade.url }}">
-                            <span class="family-card-label">{{ blade.value }}</span>
-                            <span class="family-card-meta">{{ blade.type_label }}</span>
-                            <span class="family-card-count">{{ blade.source_count }} source{{ blade.source_count|pluralize }}</span>
-                            <span class="family-card-meta">Sources: {{ blade.source_summary }}</span>
-                            <span class="family-card-meta">Matches: {{ blade.record_count }} record{{ blade.record_count|pluralize }}</span>
-                            <span class="family-card-meta">References: {{ blade.reference_count }}</span>
-                            <span class="family-card-meta">Threats: {{ blade.threat_summary }}</span>
-                            <span class="family-card-meta">Families: {{ blade.malware_summary }}</span>
-                        </a>
-                    {% endfor %}
-                </div>
-            {% else %}
-                <div class="empty-state">
-                    <h3>No IOC blades matched the current search</h3>
-                    <p>Try a broader IOC value or clear some filters.</p>
-                </div>
-            {% endif %}
-        </section>
-        {% endif %}
-
-        <section class="panel table-panel">
-            <div class="panel-header">
-                <div>
-                    <p class="eyebrow">Recent Activity</p>
-                    <h2>Latest IOCs</h2>
-                </div>
-                <div class="table-toolbar">
-                    <p class="muted">Showing {{ pagination.start_index }}-{{ pagination.end_index }} of {{ pagination.total_count }}</p>
-                    <form class="page-size-form" method="get">
-                        <label>
-                            <span>Rows</span>
-                            <select name="page_size" onchange="window.location.href=this.value">
-                                {% for option in page_size_options %}
-                                    <option value="{{ option.url }}" {% if option.selected %}selected{% endif %}>{{ option.value }}</option>
-                                {% endfor %}
-                            </select>
-                        </label>
-                    </form>
-                </div>
-            </div>
-            {% if recent_ioc_rows %}
-                <div class="table-wrap">
-                    <table class="intel-table">
-                        <thead>
-                            <tr>
-                                <th><a class="sort-link{% if sort_headers.value.active %} is-active{% endif %}" href="{{ sort_headers.value.url }}">IOC Value{% if sort_headers.value.indicator %} <span>{{ sort_headers.value.indicator }}</span>{% endif %}</a></th>
-                                <th><a class="sort-link{% if sort_headers.type.active %} is-active{% endif %}" href="{{ sort_headers.type.url }}">Type{% if sort_headers.type.indicator %} <span>{{ sort_headers.type.indicator }}</span>{% endif %}</a></th>
-                                <th>Summary</th>
-                                <th><a class="sort-link{% if sort_headers.observed.active %} is-active{% endif %}" href="{{ sort_headers.observed.url }}">Observed{% if sort_headers.observed.indicator %} <span>{{ sort_headers.observed.indicator }}</span>{% endif %}</a></th>
-                                <th><a class="sort-link{% if sort_headers.ingested.active %} is-active{% endif %}" href="{{ sort_headers.ingested.url }}">Ingested{% if sort_headers.ingested.indicator %} <span>{{ sort_headers.ingested.indicator }}</span>{% endif %}</a></th>
-                                <th><a class="sort-link{% if sort_headers.source.active %} is-active{% endif %}" href="{{ sort_headers.source.url }}">Source{% if sort_headers.source.indicator %} <span>{{ sort_headers.source.indicator }}</span>{% endif %}</a></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for row in recent_ioc_rows %}
-                                {% with record=row.record %}
-                                <tr class="table-row-link" data-href="{% url 'intel:ioc_detail' record.pk %}">
-                                    <td data-label="IOC Value">
-                                        <div class="value-cell">
-                                            <a href="{% url 'intel:ioc_detail' record.pk %}">{{ record.value }}</a>
-                                            {% if row.tag_list %}
-                                                <span class="inline-tags">{{ row.tag_list|join:", " }}</span>
-                                            {% endif %}
-                                        </div>
-                                    </td>
-                                    <td data-label="Type">{{ row.type_label }}</td>
-                                    <td data-label="Summary">
-                                        <div class="value-cell">
-                                            <span class="summary-title">{{ row.summary_title }}</span>
-                                            {% if row.malware_family_url %}
-                                                <a class="cluster-link" href="{{ row.malware_family_url }}">{{ row.malware_family }}</a>
-                                            {% endif %}
-                                            {% if row.summary_meta %}
-                                                <span class="inline-tags">{{ row.summary_meta|join:" | " }}</span>
-                                            {% endif %}
-                                        </div>
-                                    </td>
-                                    <td data-label="Observed">
-                                        {% display_datetime row.observed_at %}
-                                    </td>
-                                    <td data-label="Ingested">{% display_datetime record.last_ingested_at %}</td>
-                                    <td data-label="Source">
-                                        <div class="value-cell">
-                                            <div class="chip-row">
-                                                {% for badge in row.source_badges %}
-                                                    <span class="chip chip-strong">{{ badge }}</span>
-                                                {% endfor %}
-                                            </div>
-                                            {% if row.source_links %}
-                                                <div class="reference-link-list">
-                                                    {% for link in row.source_links %}
-                                                        <a href="{{ link.url }}" target="_blank" rel="noreferrer">{{ link.label }}</a>
-                                                    {% endfor %}
-                                                </div>
-                                            {% else %}
-                                                <span class="inline-tags">Not available</span>
-                                            {% endif %}
-                                        </div>
-                                    </td>
-                                </tr>
-                                {% endwith %}
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% if page_obj.paginator.num_pages > 1 %}
-                    <div class="pagination-bar">
-                        <div class="pagination-copy">
-                            <span>Page {{ pagination.page_number }} of {{ pagination.num_pages }}</span>
-                        </div>
-                        <div class="pagination-actions">
-                            {% if pagination.has_previous %}
-                                <a class="ghost-link pagination-link" href="{{ pagination.previous_url }}">&#8592; Previous</a>
-                            {% else %}
-                                <span class="ghost-link pagination-link pagination-link-disabled">&#8592; Previous</span>
-                            {% endif %}
-                            {% if pagination.has_next %}
-                                <a class="ghost-link pagination-link" href="{{ pagination.next_url }}">Next &#8594;</a>
-                            {% else %}
-                                <span class="ghost-link pagination-link pagination-link-disabled">Next &#8594;</span>
-                            {% endif %}
-                        </div>
-                    </div>
-                {% endif %}
-            {% else %}
-                <div class="empty-state">
-                    <h3>No IOCs match the current filters</h3>
-                    <p>Clear the current hunt scope or import new data to repopulate the analyst table.</p>
-                </div>
-            {% endif %}
-        </section>
-    </div>
 </section>
 {% endblock %}

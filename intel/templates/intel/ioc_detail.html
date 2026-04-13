@@ -2,36 +2,43 @@
 {% load intel_datetime %}
 
 {% block title %}ThreatFoundry | IOC Detail{% endblock %}
+{% block page_kicker %}Investigation Console{% endblock %}
+{% block page_heading %}Indicator Investigation{% endblock %}
+{% block page_subtitle %}Detailed context, enrichment, source payloads, and correlated evidence for a single indicator.{% endblock %}
+
+{% block page_header_actions %}
+    <a class="secondary-button" href="{% url 'intel:dashboard' %}">Back To Dashboard</a>
+{% endblock %}
 
 {% block content %}
-<div class="detail-layout">
-    <div class="detail-main">
-        <div class="panel">
-            <div class="panel-header">
+<section class="investigation-shell">
+    <div class="investigation-main">
+        <section class="panel case-summary-panel">
+            <header class="section-header">
                 <div>
-                    <p class="eyebrow">Analyst Detail</p>
-                    <h1>{{ record.value }}</h1>
+                    <p class="eyebrow">Case Header</p>
+                    <h2>{{ record.value }}</h2>
                 </div>
-                <a class="ghost-link" href="{% url 'intel:dashboard' %}">Back to dashboard</a>
-            </div>
+                <a class="ghost-link" href="{% url 'intel:dashboard' %}">Return to Hunt Board</a>
+            </header>
             <div class="detail-grid">
                 {% for item in overview_items %}
-                    <div class="detail-item">
+                    <article class="detail-item">
                         <span>{{ item.label }}</span>
                         <strong>{{ item.value }}</strong>
-                    </div>
+                    </article>
                 {% endfor %}
             </div>
-        </div>
+        </section>
 
         {% if detail_sections %}
-        <div class="panel">
-            <div class="panel-header">
+        <section class="panel">
+            <header class="section-header">
                 <div>
-                    <p class="eyebrow">Platform Fields</p>
-                    <h2>Source-Specific Context</h2>
+                    <p class="eyebrow">Indicator Metadata</p>
+                    <h2>Source Field Breakdown</h2>
                 </div>
-            </div>
+            </header>
             <div class="detail-sections">
                 {% for section in detail_sections %}
                     <section class="detail-section">
@@ -47,17 +54,17 @@
                     </section>
                 {% endfor %}
             </div>
-        </div>
+        </section>
         {% endif %}
 
         {% if hash_correlation %}
-        <div class="panel">
-            <div class="panel-header">
+        <section class="panel">
+            <header class="section-header">
                 <div>
                     <p class="eyebrow">Correlation</p>
                     <h2>{{ hash_correlation.title }}</h2>
                 </div>
-            </div>
+            </header>
             <div class="context-block">
                 <p class="muted">{{ hash_correlation.message }}</p>
             </div>
@@ -68,7 +75,6 @@
                         <p class="section-title">Digest Type</p>
                         <p class="summary-title">{{ hash_correlation.canonical_type }}</p>
                     </section>
-
                     <section class="detail-section">
                         <p class="section-title">Inferred Malware Families</p>
                         {% if hash_correlation.families %}
@@ -78,10 +84,9 @@
                                 {% endfor %}
                             </div>
                         {% else %}
-                            <p class="muted">No malware family could be inferred from ThreatFox for this exact hash.</p>
+                            <p class="muted">No family inference available for this exact hash.</p>
                         {% endif %}
                     </section>
-
                     <section class="detail-section">
                         <p class="section-title">Related Threat Types</p>
                         {% if hash_correlation.threat_types %}
@@ -94,7 +99,7 @@
                                 {% endfor %}
                             </ul>
                         {% else %}
-                            <p class="muted">ThreatFox has no exact threat-type hits for this hash yet.</p>
+                            <p class="muted">No exact threat-type matches in current dataset.</p>
                         {% endif %}
                     </section>
                 </div>
@@ -127,49 +132,41 @@
                             </table>
                         </div>
                     {% else %}
-                        <p class="muted">No exact ThreatFox hash matches are available in the current dataset.</p>
+                        <p class="muted">No exact ThreatFox hash records available.</p>
                     {% endif %}
                 </div>
             {% endif %}
-        </div>
+        </section>
         {% endif %}
 
         {% if virustotal_context %}
-        <div class="panel">
-            <div class="panel-header">
+        <section class="panel">
+            <header class="section-header">
                 <div>
                     <p class="eyebrow">Enrichment</p>
-                    <h2>VirusTotal Context</h2>
+                    <h2>VirusTotal Intelligence</h2>
                 </div>
                 {% if virustotal_context.reference_url %}
-                    <a class="ghost-link" href="{{ virustotal_context.reference_url }}" target="_blank" rel="noreferrer">Open VirusTotal</a>
+                    <a class="secondary-button" href="{{ virustotal_context.reference_url }}" target="_blank" rel="noreferrer">Open VirusTotal</a>
                 {% endif %}
-            </div>
+            </header>
             <div class="detail-sections">
                 <section class="detail-section">
                     <p class="section-title">Analysis Summary</p>
                     <dl class="detail-list detail-list-compact">
                         {% for item in virustotal_context.analysis_items %}
-                            <div>
-                                <dt>{{ item.label }}</dt>
-                                <dd>{{ item.value }}</dd>
-                            </div>
+                            <div><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></div>
                         {% endfor %}
                     </dl>
                 </section>
-
                 <section class="detail-section">
                     <p class="section-title">Classification Signals</p>
                     <dl class="detail-list detail-list-compact">
                         {% for item in virustotal_context.classification_items %}
-                            <div>
-                                <dt>{{ item.label }}</dt>
-                                <dd>{{ item.value }}</dd>
-                            </div>
+                            <div><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></div>
                         {% endfor %}
                     </dl>
                 </section>
-
                 <section class="detail-section">
                     <p class="section-title">Artifact Details</p>
                     <dl class="detail-list detail-list-compact">
@@ -189,27 +186,22 @@
                 </section>
             </div>
             <div class="context-block">
-                {% if virustotal_context.reference_note %}
-                    <p class="muted">{{ virustotal_context.reference_note }}</p>
-                {% endif %}
+                {% if virustotal_context.reference_note %}<p class="muted">{{ virustotal_context.reference_note }}</p>{% endif %}
                 <p class="section-title">VirusTotal Raw Payload</p>
                 <pre class="code-block virustotal-raw-block">{{ virustotal_context.raw_pretty }}</pre>
             </div>
-        </div>
+        </section>
         {% endif %}
 
-        <div class="panel">
-            <div class="panel-header">
+        <section class="panel">
+            <header class="section-header">
                 <div>
-                    <p class="eyebrow">Metadata</p>
-                    <h2>Threat Context</h2>
+                    <p class="eyebrow">Source And References</p>
+                    <h2>Metadata And External Context</h2>
                 </div>
-            </div>
+            </header>
             <dl class="detail-list">
-                <div>
-                    <dt>Source Name</dt>
-                    <dd>{{ record.source_name }}</dd>
-                </div>
+                <div><dt>Source Name</dt><dd>{{ record.source_name }}</dd></div>
                 <div>
                     <dt>External References</dt>
                     <dd>
@@ -221,9 +213,7 @@
                                         <div class="reference-link-list">
                                             {% for link in provider.links %}
                                                 <a href="{{ link.url }}" target="_blank" rel="noreferrer">{{ link.label }}</a>
-                                                {% if link.note %}
-                                                    <span class="inline-tags">{{ link.note }}</span>
-                                                {% endif %}
+                                                {% if link.note %}<span class="inline-tags">{{ link.note }}</span>{% endif %}
                                             {% endfor %}
                                         </div>
                                     </section>
@@ -234,22 +224,14 @@
                         {% endif %}
                     </dd>
                 </div>
-                <div>
-                    <dt>Created At</dt>
-                    <dd>{% display_datetime record.created_at %}</dd>
-                </div>
-                <div>
-                    <dt>Updated At</dt>
-                    <dd>{% display_datetime record.updated_at %}</dd>
-                </div>
+                <div><dt>Created At</dt><dd>{% display_datetime record.created_at %}</dd></div>
+                <div><dt>Updated At</dt><dd>{% display_datetime record.updated_at %}</dd></div>
                 <div>
                     <dt>Tags</dt>
                     <dd>
                         {% if tag_list %}
                             <div class="chip-row">
-                                {% for tag in tag_list %}
-                                    <span class="chip chip-strong">{{ tag }}</span>
-                                {% endfor %}
+                                {% for tag in tag_list %}<span class="chip chip-strong">{{ tag }}</span>{% endfor %}
                             </div>
                         {% else %}
                             No tags stored for this IOC.
@@ -257,19 +239,19 @@
                     </dd>
                 </div>
             </dl>
-        </div>
+        </section>
     </div>
 
-    <aside class="detail-side">
-        <section class="panel">
-            <div class="panel-header">
+    <aside class="investigation-rail">
+        <section class="panel telemetry-panel">
+            <header class="section-header">
                 <div>
-                    <p class="eyebrow">Raw Record</p>
-                    <h2>Source Payload</h2>
+                    <p class="eyebrow">Telemetry</p>
+                    <h2>Raw Source Payload</h2>
                 </div>
-            </div>
+            </header>
             <div class="payload-panel">
-                <p class="payload-meta">Scrollable raw source payload.</p>
+                <p class="payload-meta">Scrollable source payload retained for audit and analyst validation.</p>
                 <div class="payload-scroll-shell">
                     <pre class="code-block code-block-scroll">{{ raw_payload_pretty }}</pre>
                 </div>
@@ -277,13 +259,13 @@
         </section>
 
         <section class="panel whois-blade-panel">
-            <div class="panel-header">
+            <header class="section-header">
                 <div>
                     <p class="eyebrow">Enrichment</p>
-                    <h2>WHOIS &amp; Geolocation</h2>
+                    <h2>WHOIS And Geolocation</h2>
                 </div>
                 <span class="inline-tags">Status: {{ whois_blade.status_label }}</span>
-            </div>
+            </header>
             {% if whois_blade.status == "ok" %}
                 <div class="detail-sections whois-blade-sections">
                     {% for section in whois_blade.fields %}
@@ -291,18 +273,11 @@
                             <p class="section-title">{{ section.heading }}</p>
                             <dl class="detail-list detail-list-compact whois-blade-list">
                                 {% for item in section.items %}
-                                    <div>
-                                        <dt>{{ item.label }}</dt>
-                                        <dd>{{ item.value|default:"N/A" }}</dd>
-                                    </div>
+                                    <div><dt>{{ item.label }}</dt><dd>{{ item.value|default:"N/A" }}</dd></div>
                                 {% endfor %}
                             </dl>
                         </section>
                     {% endfor %}
-                </div>
-            {% elif whois_blade.status == "failed" %}
-                <div class="context-block whois-blade-message">
-                    <p class="muted">{{ whois_blade.message }}</p>
                 </div>
             {% else %}
                 <div class="context-block whois-blade-message">
@@ -311,5 +286,5 @@
             {% endif %}
         </section>
     </aside>
-</div>
+</section>
 {% endblock %}

@@ -66,6 +66,11 @@ class DashboardFilters:
 
 
 def parse_dashboard_filters(params) -> DashboardFilters:
+    """Normalize request query params into safe, typed dashboard filters.
+
+    Handles coercion/validation for dates, paging, and sort controls so query
+    builders can rely on canonical filter values.
+    """
     start_date = _parse_date(params.get("start_date"))
     end_date = _parse_date(params.get("end_date"))
 
@@ -107,6 +112,11 @@ def get_filter_options():
 
 
 def build_dashboard_context(filters: DashboardFilters) -> dict:
+    """Assemble the full dashboard view-model consumed by templates.
+
+    Includes KPI aggregates, chart-ready datasets, filter and sort UI state,
+    provider health, IOC blade summaries, and paginated table rows.
+    """
     filtered_queryset = apply_dashboard_filters(_base_queryset(), filters)
     tag_stats = build_tag_stats(filtered_queryset)
     ioc_blades = build_ioc_blades(filtered_queryset)
@@ -262,6 +272,7 @@ def build_provider_health_status(provider_availabilities: list | None = None) ->
 
 
 def build_detail_context(record: IntelIOC) -> dict:
+    """Build normalized IOC detail data for the investigation page."""
     observed_at = _resolve_observed_at(record)
     return {
         "record": record,
@@ -275,6 +286,7 @@ def build_detail_context(record: IntelIOC) -> dict:
 
 
 def build_malware_family_context(family: str, page: int = 1, page_size: int = 20) -> dict:
+    """Build malware family workspace context with aggregates and pagination."""
     cluster_name = (family or "").strip()
     family_queryset = _base_queryset().filter(malware_bucket=cluster_name)
     tag_stats = build_tag_stats(family_queryset)
@@ -381,6 +393,7 @@ def build_malware_directory_context(limit: int = 24) -> dict:
 
 
 def build_dashboard_row(record: IntelIOC) -> dict:
+    """Project a raw IOC record into the row schema used by dashboard tables."""
     observed_at = _resolve_observed_at(record)
     summary = _build_dashboard_summary(record)
     contexts = _iter_record_source_contexts(record)
@@ -401,6 +414,7 @@ def build_dashboard_row(record: IntelIOC) -> dict:
 
 
 def build_ioc_blades(queryset, limit: int = 24) -> list[dict]:
+    """Aggregate records by IOC value/type into blade-style search pivots."""
     grouped: dict[tuple[str, str], dict] = {}
 
     for record in queryset.order_by("-timeline_at", "-last_ingested_at", "-id"):
@@ -471,6 +485,7 @@ def build_ioc_blades(queryset, limit: int = 24) -> list[dict]:
 
 
 def build_ioc_blade_detail_context(value: str, value_type: str) -> dict | None:
+    """Build detailed source-level context for a single IOC blade."""
     records = list(
         _base_queryset()
         .filter(value=value, value_type=value_type)
@@ -575,6 +590,7 @@ def build_ioc_blade_detail_context(value: str, value_type: str) -> dict | None:
 
 
 def apply_dashboard_filters(queryset, filters: DashboardFilters):
+    """Apply dashboard filters to a queryset in a deterministic order."""
     if filters.start_date:
         queryset = queryset.filter(timeline_at__gte=_start_of_day(filters.start_date))
     if filters.end_date:
@@ -600,6 +616,7 @@ def apply_dashboard_filters(queryset, filters: DashboardFilters):
 
 
 def apply_dashboard_sort(queryset, filters: DashboardFilters):
+    """Apply validated sort criteria with explicit null ordering."""
     field_names = SORT_OPTIONS.get(filters.sort_by, SORT_OPTIONS[DEFAULT_SORT_BY])
     direction = filters.sort_direction
     order_by = []
@@ -746,6 +763,7 @@ def _build_sort_headers(filters: DashboardFilters) -> dict:
 
 
 def build_tag_stats(queryset, limit: int = 10) -> dict:
+    """Compute unique tag count and top tag frequencies for summary chips."""
     counter: Counter[str] = Counter()
 
     for tags in queryset.values_list("tags", flat=True):
