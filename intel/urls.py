@@ -10,6 +10,7 @@ from intel.views import (
     set_time_display_view,
 )
 from intel.views_chat import analyst_chat_api_view, analyst_chat_view
+from intel.views_whois import whois_lookup_api_view
 
 
 app_name = "intel"
@@ -20,6 +21,8 @@ urlpatterns = [
     path("dashboard/export-csv/", export_dashboard_csv_view, name="dashboard_export_csv"),
     path("assistant/", analyst_chat_view, name="analyst_chat"),
     path("api/assistant/chat/", analyst_chat_api_view, name="analyst_chat_api"),
+    path("api/whois/", whois_lookup_api_view, name="whois_lookup_api"),
+    path("intel/api/whois/", whois_lookup_api_view, name="whois_lookup_api_prefixed"),
     path("docs/", documentation_view, name="documentation"),
     path("docs/<str:doc_name>/", documentation_view, name="documentation_doc"),
     path("malware/", malware_family_view, name="malware_family"),

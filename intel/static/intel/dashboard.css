@@ -159,6 +159,7 @@ a:hover {
 .detail-main {
     display: grid;
     gap: 22px;
+    min-width: 0;
 }
 
 .panel {
@@ -175,8 +176,7 @@ a:hover {
 .hero,
 .filter-rail,
 .chart-panel,
-.table-panel,
-.detail-side {
+.table-panel {
     overflow: hidden;
     
 }
@@ -675,9 +675,10 @@ a:hover {
 
 .detail-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
+    grid-template-columns: minmax(0, 1fr) clamp(320px, 30vw, 460px);
     gap: 22px;
     align-items: start;
+    min-width: 0;
 }
 
 .cluster-layout {
@@ -747,13 +748,53 @@ a:hover {
 
 .detail-list dd {
     margin: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.artifact-value {
+    display: inline;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.artifact-whois-block {
+    max-height: 180px;
+    overflow: auto;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(4, 11, 21, 0.6);
+    color: #b8c8db;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
 }
 
 .detail-side {
     align-self: start;
     min-height: 0;
-    height: auto;
-    padding-bottom: 22px;
+    height: fit-content;
+    padding-bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    justify-self: stretch;
+}
+
+.detail-side > .panel {
+    min-width: 0;
+    margin: 0;
+}
+
+.detail-main > .panel {
+    min-width: 0;
 }
 
 .detail-sections {
@@ -777,6 +818,35 @@ a:hover {
 
 .detail-section-tight {
     padding: 14px;
+}
+
+.whois-blade-panel .panel-header {
+    padding-bottom: 6px;
+}
+
+.whois-blade-sections {
+    gap: 14px;
+    margin-top: 14px;
+    margin-bottom: 20px;
+}
+
+.whois-blade-section {
+    padding: 14px;
+}
+
+.whois-blade-list {
+    margin: 0;
+    padding-bottom: 0;
+    gap: 10px;
+}
+
+.whois-blade-list dd {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.whois-blade-message {
+    margin-bottom: 20px;
 }
 
 .payload-panel {
@@ -830,6 +900,13 @@ a:hover {
     overflow-wrap: anywhere;
     word-break: break-word;
     overflow: visible;
+}
+
+.virustotal-raw-block {
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .pagination-bar {

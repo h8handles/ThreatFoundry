@@ -26,6 +26,18 @@ from intel.time_display import (
     TIME_DISPLAY_SESSION_KEY,
     get_time_display_definition,
 )
+from intel.views_whois import lookup_whois_target
+
+WHOIS_SUPPORTED_VALUE_TYPES = {
+    "domain",
+    "host",
+    "hostname",
+    "fqdn",
+    "ip",
+    "ip_address",
+    "ipv4",
+    "ipv6",
+}
 
 
 @role_required(VIEWER_GROUP)
@@ -95,6 +107,7 @@ def ioc_detail_view(request, pk: int):
     context = build_detail_context(record)
     context["hash_correlation"] = build_hash_correlation_context(record)
     context["raw_payload_pretty"] = json.dumps(record.raw_payload, indent=2, sort_keys=True)
+    context["whois_blade"] = _build_whois_blade_context(record)
     return render(request, "intel/ioc_detail.html", context)
 
 
@@ -194,3 +207,66 @@ def set_time_display_view(request):
     ):
         return redirect(redirect_to)
     return redirect("intel:dashboard")
+
+
+def _build_whois_blade_context(record: IntelIOC) -> dict:
+    value = (record.value or "").strip()
+    value_type = (record.value_type or "").strip().lower().replace("-", "_")
+
+    if not value or value_type not in WHOIS_SUPPORTED_VALUE_TYPES:
+        return {
+            "supported": False,
+            "status": "unavailable",
+            "status_label": "Unavailable",
+            "message": "WHOIS/geolocation enrichment is available for IP and domain indicators.",
+            "fields": [],
+        }
+
+    outcome = lookup_whois_target(value)
+    if not outcome["ok"]:
+        return {
+            "supported": True,
+            "status": "failed",
+            "status_label": "Failed",
+            "target": value,
+            "message": outcome.get("error") or "Lookup failed.",
+            "fields": [],
+        }
+
+    result = outcome.get("result") or {}
+    whois = result.get("whois") or {}
+    geolocation = result.get("geolocation") or {}
+
+    summary_fields = [
+        {"label": "Target", "value": result.get("target") or value},
+        {"label": "Target Type", "value": result.get("target_type")},
+        {"label": "Registered Domain", "value": result.get("registered_domain")},
+        {"label": "Resolved IP", "value": result.get("resolved_ip")},
+    ]
+    whois_fields = [
+        {"label": "Registrar", "value": whois.get("registrar")},
+        {"label": "Organization", "value": whois.get("organization") or geolocation.get("organization")},
+        {"label": "Creation Date", "value": whois.get("creation_date")},
+        {"label": "Expiration Date", "value": whois.get("expiration_date")},
+        {"label": "Updated Date", "value": whois.get("updated_date")},
+    ]
+    geolocation_fields = [
+        {"label": "Country", "value": geolocation.get("country") or whois.get("country")},
+        {"label": "City", "value": geolocation.get("city")},
+        {"label": "Region", "value": geolocation.get("region")},
+        {"label": "ISP", "value": geolocation.get("isp")},
+        {"label": "ASN", "value": geolocation.get("asn")},
+    ]
+
+    return {
+        "supported": True,
+        "status": "ok",
+        "status_label": "Ready",
+        "target": value,
+        "message": "",
+        "fields": [
+            {"heading": "Summary", "items": summary_fields},
+            {"heading": "WHOIS", "items": whois_fields},
+            {"heading": "Geolocation", "items": geolocation_fields},
+        ],
+    }

@@ -276,25 +276,6 @@ document.addEventListener("DOMContentLoaded", () => {
         },
     });
 
-    // Domain enrichment panel
-    const domainEnrichmentData = parseChartData("domain-enrichment-data");
-    if (domainEnrichmentData) {
-        const panel = document.getElementById("domain-enrichment-panel");
-        if (panel) {
-            panel.innerHTML = `
-                <h3>Domain Enrichment</h3>
-                <ul>
-                    <li>Registrar: ${domainEnrichmentData.registrar || "N/A"}</li>
-                    <li>Domain Age: ${domainEnrichmentData.domain_age_days !== undefined ? domainEnrichmentData.domain_age_days + " days" : "N/A"}</li>
-                    <li>Nameservers: ${domainEnrichmentData.nameservers?.join(", ") || "N/A"}</li>
-                    <li>Resolved IPs: ${domainEnrichmentData.resolved_ips?.join(", ") || "N/A"}</li>
-                    <li>Reputation Sources: ${domainEnrichmentData.reputation_sources?.join(", ") || "N/A"}</li>
-                    <li>Certificate SHA256: ${domainEnrichmentData.cert_sha256 || "N/A"}</li>
-                </ul>
-            `;
-        }
-    }
-
     document.querySelectorAll(".table-row-link").forEach((row) => {
         row.addEventListener("click", (event) => {
             const interactiveTarget = event.target.closest("a, button, input, select, textarea");

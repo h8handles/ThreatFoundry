@@ -4,7 +4,7 @@
 {% block title %}ThreatFoundry | IOC Detail{% endblock %}
 
 {% block content %}
-<section class="detail-layout">
+<div class="detail-layout">
     <div class="detail-main">
         <div class="panel">
             <div class="panel-header">
@@ -176,7 +176,13 @@
                         {% for item in virustotal_context.artifact_items %}
                             <div>
                                 <dt>{{ item.label }}</dt>
-                                <dd>{{ item.value }}</dd>
+                                <dd>
+                                    {% if item.label == "Whois" %}
+                                        <div class="artifact-whois-block">{{ item.value }}</div>
+                                    {% else %}
+                                        <span class="artifact-value">{{ item.value }}</span>
+                                    {% endif %}
+                                </dd>
                             </div>
                         {% endfor %}
                     </dl>
@@ -187,7 +193,7 @@
                     <p class="muted">{{ virustotal_context.reference_note }}</p>
                 {% endif %}
                 <p class="section-title">VirusTotal Raw Payload</p>
-                <pre class="code-block">{{ virustotal_context.raw_pretty }}</pre>
+                <pre class="code-block virustotal-raw-block">{{ virustotal_context.raw_pretty }}</pre>
             </div>
         </div>
         {% endif %}
@@ -254,19 +260,56 @@
         </div>
     </div>
 
-    <aside class="detail-side panel">
-        <div class="panel-header">
-            <div>
-                <p class="eyebrow">Raw Record</p>
-                <h2>Source Payload</h2>
+    <aside class="detail-side">
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <p class="eyebrow">Raw Record</p>
+                    <h2>Source Payload</h2>
+                </div>
             </div>
-        </div>
-        <div class="payload-panel">
-            <p class="payload-meta">Scrollable raw source payload.</p>
-            <div class="payload-scroll-shell">
-                <pre class="code-block code-block-scroll">{{ raw_payload_pretty }}</pre>
+            <div class="payload-panel">
+                <p class="payload-meta">Scrollable raw source payload.</p>
+                <div class="payload-scroll-shell">
+                    <pre class="code-block code-block-scroll">{{ raw_payload_pretty }}</pre>
+                </div>
             </div>
-        </div>
+        </section>
+
+        <section class="panel whois-blade-panel">
+            <div class="panel-header">
+                <div>
+                    <p class="eyebrow">Enrichment</p>
+                    <h2>WHOIS &amp; Geolocation</h2>
+                </div>
+                <span class="inline-tags">Status: {{ whois_blade.status_label }}</span>
+            </div>
+            {% if whois_blade.status == "ok" %}
+                <div class="detail-sections whois-blade-sections">
+                    {% for section in whois_blade.fields %}
+                        <section class="detail-section whois-blade-section">
+                            <p class="section-title">{{ section.heading }}</p>
+                            <dl class="detail-list detail-list-compact whois-blade-list">
+                                {% for item in section.items %}
+                                    <div>
+                                        <dt>{{ item.label }}</dt>
+                                        <dd>{{ item.value|default:"N/A" }}</dd>
+                                    </div>
+                                {% endfor %}
+                            </dl>
+                        </section>
+                    {% endfor %}
+                </div>
+            {% elif whois_blade.status == "failed" %}
+                <div class="context-block whois-blade-message">
+                    <p class="muted">{{ whois_blade.message }}</p>
+                </div>
+            {% else %}
+                <div class="context-block whois-blade-message">
+                    <p class="muted">{{ whois_blade.message }}</p>
+                </div>
+            {% endif %}
+        </section>
     </aside>
-</section>
+</div>
 {% endblock %}

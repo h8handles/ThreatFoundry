@@ -1523,6 +1523,44 @@ class DetailViewRenderingTests(ViewerAccessTestCase):
         self.assertContains(response, "payload-scroll-shell")
         self.assertContains(response, "{}")
 
+    @patch("intel.views.lookup_whois_target")
+    def test_ioc_detail_view_renders_whois_blade_for_supported_ioc_types(self, mock_lookup):
+        mock_lookup.return_value = {
+            "ok": True,
+            "result": {
+                "target": "minimal-example.test",
+                "target_type": "domain",
+                "registered_domain": "example.test",
+                "resolved_ip": "203.0.113.10",
+                "whois": {
+                    "registrar": "Example Registrar",
+                    "organization": "Example Org",
+                    "creation_date": "2024-01-01",
+                    "expiration_date": "2027-01-01",
+                    "updated_date": "2026-01-01",
+                },
+                "geolocation": {
+                    "country": "United States",
+                    "city": "New York",
+                    "region": "New York",
+                    "isp": "Example ISP",
+                    "asn": "AS64496",
+                },
+            },
+        }
+
+        response = self.client.get(
+            reverse("intel:ioc_detail", args=[self.minimal_record.pk])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "WHOIS &amp; Geolocation")
+        self.assertContains(response, "Summary")
+        self.assertContains(response, "WHOIS")
+        self.assertContains(response, "Geolocation")
+        self.assertContains(response, "Example Registrar")
+        self.assertContains(response, "United States")
+
     def test_ioc_blade_detail_view_returns_200_for_seeded_ioc(self):
         IntelIOC.objects.create(
             source_name="alienvault",
