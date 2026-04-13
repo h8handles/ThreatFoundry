@@ -9,6 +9,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from intel.models import IntelIOC
+from intel.services.scoring import build_score_fields
 
 
 HASH_TYPE_ALIASES = {
@@ -130,6 +131,12 @@ def correlate_unknown_iocs(limit: int | None = None) -> dict:
             "likely_threat_type": "",
             "likely_malware_family": "",
         }
+        update_fields.update(
+            build_score_fields(
+                derived_confidence_level=update_fields["derived_confidence_level"],
+                confidence_level=record.confidence_level,
+            )
+        )
         promoted_this_record = False
 
         if analysis.score >= CORRELATION_PROMOTION_THRESHOLD:

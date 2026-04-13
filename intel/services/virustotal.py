@@ -19,6 +19,7 @@ from intel.services.common import (
     first_nonempty_text as _first_nonempty_text,
 )
 from intel.services.provider_registry import build_provider_links
+from intel.services.scoring import apply_score_fields
 
 load_project_env()
 
@@ -323,6 +324,7 @@ def enrich_ioc_record(record, force: bool = False, timeout: int = 30) -> bool:
         record.tags = merged_tags
         update_fields.append("tags")
 
+    update_fields.extend(apply_score_fields(record))
     record.save(update_fields=list(dict.fromkeys(update_fields)))
     return True
 
