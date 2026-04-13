@@ -440,6 +440,13 @@
                 {% endfor %}
             </ul>
         </div>
+
+        <!-- Add Generate Report action -->
+        <div class="rail-section">
+            <p class="section-title">Generate Executive Report</p>
+            <a class="primary-button" href="{% url 'intel:generate_exec_report' %}?{{ request.GET.urlencode }}">Generate Report (HTML)</a>
+            <a class="secondary-button" href="{% url 'intel:generate_exec_report' %}?{{ request.GET.urlencode }}&format=markdown">Generate Report (Markdown)</a>
+        </div>
     </aside>
 </section>
 {% endblock %}
