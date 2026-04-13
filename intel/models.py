@@ -1,3 +1,5 @@
+from django.db import models
+
 class IntelIOC(models.Model):
     # Existing fields...
     
