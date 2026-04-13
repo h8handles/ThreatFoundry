@@ -1,4 +1,5 @@
 from django.db import models
+from intel.services.threatfoundry_scoring import ThreatFoundryScorer
 
 class IntelIOC(models.Model):
     # Existing fields...
