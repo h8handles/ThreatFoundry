@@ -1,8 +1,7 @@
 import json
 from pathlib import Path
-
 from django.conf import settings
-from django.http import Http404, StreamingHttpResponse
+from django.http import Http404, StreamingHttpResponse, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
@@ -27,6 +26,7 @@ from intel.time_display import (
     get_time_display_definition,
 )
 from intel.views_whois import lookup_whois_target
+from intel.services.reporting import generate_exec_report
 
 WHOIS_SUPPORTED_VALUE_TYPES = {
     "domain",
@@ -39,13 +39,11 @@ WHOIS_SUPPORTED_VALUE_TYPES = {
     "ipv6",
 }
 
-
 @role_required(VIEWER_GROUP)
 def dashboard_view(request):
     filters = parse_dashboard_filters(request.GET)
     context = build_dashboard_context(filters)
     return render(request, "intel/dashboard.html", context)
-
 
 @role_required(VIEWER_GROUP)
 def export_dashboard_csv_view(request):
@@ -100,7 +98,6 @@ def export_dashboard_csv_view(request):
     response["Content-Disposition"] = 'attachment; filename="dashboard_scope_export.csv"'
     return response
 
-
 @role_required(VIEWER_GROUP)
 def ioc_detail_view(request, pk: int):
     record = get_object_or_404(IntelIOC, pk=pk)
@@ -109,7 +106,6 @@ def ioc_detail_view(request, pk: int):
     context["raw_payload_pretty"] = json.dumps(record.raw_payload, indent=2, sort_keys=True)
     context["whois_blade"] = _build_whois_blade_context(record)
     return render(request, "intel/ioc_detail.html", context)
-
 
 @role_required(VIEWER_GROUP)
 def ioc_blade_detail_view(request):
@@ -123,7 +119,6 @@ def ioc_blade_detail_view(request):
         raise Http404("IOC blade not found.")
 
     return render(request, "intel/ioc_blade_detail.html", context)
-
 
 @role_required(VIEWER_GROUP)
 def malware_family_view(request):
@@ -148,7 +143,6 @@ def malware_family_view(request):
         page_size=page_size,
     )
     return render(request, "intel/malware_family.html", context)
-
 
 @role_required(VIEWER_GROUP)
 def documentation_view(request, doc_name=None):
@@ -192,7 +186,6 @@ def documentation_view(request, doc_name=None):
 
     return render(request, "intel/documentation.html", context)
 
-
 @require_POST
 @role_required(VIEWER_GROUP)
 def set_time_display_view(request):
@@ -207,7 +200,6 @@ def set_time_display_view(request):
     ):
         return redirect(redirect_to)
     return redirect("intel:dashboard")
-
 
 def _build_whois_blade_context(record: IntelIOC) -> dict:
     value = (record.value or "").strip()
@@ -271,3 +263,19 @@ def _build_whois_blade_context(record: IntelIOC) -> dict:
             {"heading": "Geolocation", "items": geolocation_fields},
         ],
     }
+
+@role_required(VIEWER_GROUP)
+def generate_exec_report_view(request):
+    filters = parse_dashboard_filters(request.GET)
+    context = build_dashboard_context(filters)
+
+    kpis = context.get("kpis")
+    ioc_blades = context.get("ioc_blades", [])
+    recent_ioc_rows = context.get("recent_ioc_rows", [])
+
+    report_data = generate_exec_report(kpis, ioc_blades, recent_ioc_rows)
+
+    if request.GET.get("format") == "markdown":
+        return HttpResponse(report_data["markdown"], content_type="text/markdown")
+    else:
+        return render(request, "intel/executive_report.html", {"report": report_data["html"]})
