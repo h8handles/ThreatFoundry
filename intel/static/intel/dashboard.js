@@ -75,7 +75,98 @@ function applyConfidenceChipStyles() {
     });
 }
 
+function isEditableElement(element) {
+    if (!element) {
+        return false;
+    }
+    const tag = element.tagName?.toLowerCase();
+    return (
+        element.isContentEditable ||
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select"
+    );
+}
+
+function focusDashboardSearch() {
+    const searchInput = document.getElementById("dashboard-search-input");
+    if (searchInput) {
+        searchInput.focus();
+        searchInput.select?.();
+        return true;
+    }
+    return false;
+}
+
+function setupGlobalShortcuts() {
+    const dashboardUrl = document.body.dataset.dashboardUrl || "";
+    const assistantUrl = document.body.dataset.assistantUrl || "";
+    let gSequenceActive = false;
+    let gSequenceTimer = null;
+
+    document.addEventListener("keydown", (event) => {
+        if (event.altKey || event.ctrlKey || event.metaKey) {
+            return;
+        }
+
+        const activeElement = document.activeElement;
+        const typingInField = isEditableElement(activeElement);
+        const key = event.key;
+        const loweredKey = key.toLowerCase();
+
+        if (key === "/" && !typingInField) {
+            event.preventDefault();
+            if (focusDashboardSearch()) {
+                return;
+            }
+            if (dashboardUrl) {
+                window.location.href = `${dashboardUrl}#hunt-search`;
+            }
+            return;
+        }
+
+        if (typingInField) {
+            return;
+        }
+
+        if (gSequenceActive) {
+            gSequenceActive = false;
+            if (gSequenceTimer) {
+                window.clearTimeout(gSequenceTimer);
+                gSequenceTimer = null;
+            }
+
+            if (loweredKey === "d" && dashboardUrl) {
+                event.preventDefault();
+                window.location.href = dashboardUrl;
+                return;
+            }
+            if (loweredKey === "a" && assistantUrl) {
+                event.preventDefault();
+                window.location.href = assistantUrl;
+            }
+            return;
+        }
+
+        if (loweredKey === "g") {
+            gSequenceActive = true;
+            gSequenceTimer = window.setTimeout(() => {
+                gSequenceActive = false;
+                gSequenceTimer = null;
+            }, 900);
+        }
+    });
+
+    if (window.location.hash === "#hunt-search") {
+        window.setTimeout(() => {
+            focusDashboardSearch();
+        }, 0);
+    }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+    setupGlobalShortcuts();
+
     const devicePixelRatio = Math.max(1, Math.ceil(window.devicePixelRatio || 1));
     const style = window.getComputedStyle(document.documentElement);
     const palette = {

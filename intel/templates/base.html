@@ -13,7 +13,10 @@
     {% block extra_head %}{% endblock %}
     {% block page_scripts %}{% endblock %}
 </head>
-<body>
+<body
+    data-dashboard-url="{% url 'intel:dashboard' %}"
+    data-assistant-url="{% if user.is_authenticated and authz.can_use_assistant %}{% url 'intel:analyst_chat' %}{% endif %}"
+>
     {% if user.is_authenticated and authz.can_view_app %}
         <div class="platform-shell">
             <aside class="app-sidebar">
