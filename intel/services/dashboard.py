@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.core.paginator import Paginator
 from django.db import connection
-from django.db.models import Avg, Case, CharField, Count, DateTimeField, F, Max, Min, Q, Value, When
+from django.db.models import Avg, Case, CharField, Count, DateTimeField, F, FloatField, Max, Min, Q, Value, When
 from django.db.models.functions import Coalesce, Greatest, TruncDate
 from django.urls import reverse
 from django.utils import timezone
@@ -835,6 +835,7 @@ def _base_queryset():
             "calculated_score",
             "derived_confidence_level",
             "confidence_level",
+            output_field=FloatField(),
         ),
     )
 
