@@ -1,4 +1,4 @@
-from django.db import migrations, models
+from django.db import migrations
 
 
 class Migration(migrations.Migration):
@@ -6,20 +6,7 @@ class Migration(migrations.Migration):
         ("intel", "0010_domainenrichment"),
     ]
 
-    operations = [
-        migrations.AddField(
-            model_name="intelioc",
-            name="calculated_score",
-            field=models.IntegerField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="intelioc",
-            name="score_breakdown",
-            field=models.JSONField(blank=True, default=dict),
-        ),
-        migrations.AddField(
-            model_name="intelioc",
-            name="score_version",
-            field=models.CharField(blank=True, default="", max_length=32),
-        ),
-    ]
+    # Compatibility branch retained for already-applied histories.
+    # Canonical scoring schema is defined in
+    # 0011_intelioc_calculated_score_intelioc_score_breakdown_and_more.
+    operations = []

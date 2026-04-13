@@ -277,5 +277,4 @@ def generate_exec_report_view(request):
 
     if request.GET.get("format") == "markdown":
         return HttpResponse(report_data["markdown"], content_type="text/markdown")
-    else:
-        return render(request, "intel/executive_report.html", {"report": report_data["html"]})
+    return HttpResponse(report_data["html"], content_type="text/html; charset=utf-8")
