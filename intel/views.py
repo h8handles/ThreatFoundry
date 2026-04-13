@@ -1,8 +1,7 @@
 import json
 from pathlib import Path
-
 from django.conf import settings
-from django.http import Http404, StreamingHttpResponse
+from django.http import Http404, StreamingHttpResponse, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
@@ -27,6 +26,7 @@ from intel.time_display import (
     get_time_display_definition,
 )
 from intel.views_whois import lookup_whois_target
+from intel.services.reporting import generate_exec_report
 
 WHOIS_SUPPORTED_VALUE_TYPES = {
     "domain",
