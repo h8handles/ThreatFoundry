@@ -239,6 +239,7 @@ def _build_whois_blade_context(record: IntelIOC) -> dict:
 
     summary_fields = [
         {"label": "Target", "value": result.get("target") or value},
+        {"label": "WHOIS Lookup Target", "value": result.get("whois_lookup_target") or value},
         {"label": "Target Type", "value": result.get("target_type")},
         {"label": "Registered Domain", "value": result.get("registered_domain")},
         {"label": "Resolved IP", "value": result.get("resolved_ip")},

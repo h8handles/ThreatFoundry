@@ -39,6 +39,7 @@ from intel.services.dashboard import (
 from intel.services.ingestion import normalize_alienvault_record, normalize_urlhaus_record, upsert_iocs
 from intel.services.provider_registry import build_provider_links, get_provider_availabilities
 from intel.services.provider_runs import ProviderRunRecorder
+from intel.services.whois_enrichment import enrich_target, get_registrable_domain
 from intel.tests_provider_registry import ProviderRegistryModuleTests
 from intel.services.virustotal import (
     VirusTotalNotFound,
@@ -1708,6 +1709,51 @@ class DashboardSortingAndLinkRenderingTests(ViewerAccessTestCase):
         )
         self.assertIn("alpha.example", csv_body)
         self.assertNotIn("zulu.example", csv_body)
+
+
+class WhoisRegistrableDomainTests(SimpleTestCase):
+    def test_get_registrable_domain_examples(self):
+        cases = [
+            ("60moi.canone7node.in.net", "in.net"),
+            ("sub.test.example.com", "example.com"),
+            ("google.com", "google.com"),
+            ("localhost", "localhost"),
+        ]
+
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                self.assertEqual(get_registrable_domain(raw), expected)
+
+    @patch("intel.services.whois_enrichment.lookup_ip_geolocation")
+    @patch("intel.services.whois_enrichment.resolve_domain_to_ip")
+    @patch("intel.services.whois_enrichment.lookup_domain_whois")
+    def test_enrich_target_retries_whois_with_registrable_domain(
+        self,
+        mock_lookup_domain_whois,
+        mock_resolve_domain_to_ip,
+        mock_lookup_ip_geolocation,
+    ):
+        mock_lookup_domain_whois.side_effect = [
+            RuntimeError("No match for full host"),
+            {
+                "domain_name": "in.net",
+                "registrar": "Example Registrar",
+                "creation_date": "2024-01-01",
+            },
+        ]
+        mock_resolve_domain_to_ip.side_effect = RuntimeError("DNS resolution failed")
+        mock_lookup_ip_geolocation.return_value = {}
+
+        result = enrich_target("60moi.canone7node.in.net")
+
+        self.assertEqual(
+            [call.args[0] for call in mock_lookup_domain_whois.call_args_list],
+            ["60moi.canone7node.in.net", "in.net"],
+        )
+        self.assertEqual(result["target"], "60moi.canone7node.in.net")
+        self.assertEqual(result["whois_lookup_target"], "in.net")
+        self.assertEqual(result["registered_domain"], "in.net")
+        self.assertTrue(result["summary"]["has_whois_data"])
 
 
 class PopulateSampleIocsCommandTests(ViewerAccessTestCase):

@@ -1,4 +1,5 @@
 import json
+import logging
 
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
@@ -6,13 +7,17 @@ from django.views.decorators.http import require_http_methods
 from intel.access import VIEWER_GROUP, api_role_required
 from intel.services.whois_enrichment import InvalidWhoisTargetError, enrich_target
 
+log = logging.getLogger(__name__)
+
 
 def lookup_whois_target(target):
     try:
         result = enrich_target(target)
     except InvalidWhoisTargetError as exc:
+        log.warning("WHOIS lookup invalid target: %r (%s)", target, exc)
         return {"ok": False, "error": str(exc), "status": 400}
     except Exception as exc:
+        log.exception("WHOIS lookup failed: target=%r error=%s", target, exc)
         return {"ok": False, "error": f"Lookup failed: {exc}", "status": 502}
 
     has_whois_data = bool(result.get("summary", {}).get("has_whois_data"))
