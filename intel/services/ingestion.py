@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from intel.models import IntelIOC
+from intel.services.scoring import build_score_fields
 
 
 logger = logging.getLogger(__name__)
@@ -384,10 +385,15 @@ def upsert_iocs(
                 ).exists()
             else:
                 with transaction.atomic():
+                    score_fields = build_score_fields(
+                        derived_confidence_level=normalized.get("derived_confidence_level"),
+                        confidence_level=normalized.get("confidence_level"),
+                    )
+                    normalized_with_score = {**normalized, **score_fields}
                     _, created = IntelIOC.objects.update_or_create(
                         source_name=normalized["source_name"],
                         source_record_id=normalized["source_record_id"],
-                        defaults=normalized,
+                        defaults=normalized_with_score,
                     )
             if created:
                 result.created += 1

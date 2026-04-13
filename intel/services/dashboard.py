@@ -831,7 +831,11 @@ def _base_queryset():
             default="threat_type",
             output_field=CharField(),
         ),
-        effective_confidence_level=Coalesce("derived_confidence_level", "confidence_level"),
+        effective_confidence_level=Coalesce(
+            "calculated_score",
+            "derived_confidence_level",
+            "confidence_level",
+        ),
     )
 
 
@@ -1290,6 +1294,7 @@ def _confidence_scoped_queryset(queryset):
     """
     return queryset.filter(
         Q(source_name__in=CONFIDENCE_ENABLED_SOURCES)
+        | Q(calculated_score__isnull=False)
         | Q(confidence_level__isnull=False)
         | Q(derived_confidence_level__isnull=False)
     )
@@ -1480,6 +1485,8 @@ def _effective_confidence_level(record: IntelIOC):
     annotated = getattr(record, "effective_confidence_level", None)
     if annotated is not None:
         return annotated
+    if record.calculated_score is not None:
+        return record.calculated_score
     if record.derived_confidence_level is not None:
         return record.derived_confidence_level
     return record.confidence_level
