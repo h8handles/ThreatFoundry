@@ -832,11 +832,11 @@ def _base_queryset():
             output_field=CharField(),
         ),
         effective_confidence_level=Coalesce(
-            "calculated_score",
-            "derived_confidence_level",
-            "confidence_level",
-            output_field=FloatField(),
-        ),
+    "calculated_score",
+    "derived_confidence_level",
+    "confidence_level",
+    output_field=FloatField(),
+),
     )
 
 

@@ -10,11 +10,9 @@ class IntelIOC(models.Model):
     ingestion pipeline on a single source before expanding to a richer schema.
     """
 
-    # Feed identity lets us support many free sources later.
     source_name = models.CharField(max_length=100)
     source_record_id = models.CharField(max_length=100)
 
-    # These are the main analyst-facing IOC fields we want to study first.
     value = models.CharField(max_length=255)
     value_type = models.CharField(max_length=50)
     threat_type = models.CharField(max_length=100, blank=True)
@@ -34,13 +32,16 @@ class IntelIOC(models.Model):
     likely_malware_family = models.CharField(max_length=255, blank=True)
     correlation_reasons = models.JSONField(default=list, blank=True)
 
-    # We keep the full original source row so we can revisit dropped details.
     raw_payload = models.JSONField(default=dict, blank=True)
     enrichment_payloads = models.JSONField(default=dict, blank=True)
     last_enriched_at = models.DateTimeField(null=True, blank=True)
     last_enrichment_providers = models.JSONField(default=list, blank=True)
 
-    # Local timestamps help us track what the app has done with the record.
+    # ThreatFoundry house scoring
+    calculated_score = models.FloatField(null=True, blank=True)
+    score_breakdown = models.JSONField(default=dict, blank=True)
+    score_version = models.CharField(max_length=50, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     last_ingested_at = models.DateTimeField(auto_now=True)
@@ -59,6 +60,7 @@ class IntelIOC(models.Model):
             models.Index(fields=["threat_type"]),
             models.Index(fields=["malware_family"]),
             models.Index(fields=["derived_confidence_level"]),
+            models.Index(fields=["calculated_score"]),
         ]
         ordering = ["-last_seen", "-first_seen", "value"]
 
@@ -180,7 +182,7 @@ class ProviderRunDetail(models.Model):
 
 class DomainEnrichment(models.Model):
     """
-    Stores enrichment data for domain IOCs.  Each record is linked to a single
+    Stores enrichment data for domain IOCs. Each record is linked to a single
     IntelIOC instance that contains a domain indicator.
     """
 
