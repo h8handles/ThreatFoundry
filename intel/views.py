@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
+
+import markdown
 from django.conf import settings
-from django.http import Http404, StreamingHttpResponse, HttpResponse
+from django.http import Http404, HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
@@ -13,21 +15,17 @@ from intel.services.csv_export import iter_csv_lines
 from intel.services.dashboard import (
     apply_dashboard_filters,
     apply_dashboard_sort,
-    build_ioc_blade_detail_context,
     build_dashboard_context,
     build_detail_context,
+    build_ioc_blade_detail_context,
     build_malware_directory_context,
     build_malware_family_context,
     parse_dashboard_filters,
     queryset_for_dashboard_filters,
 )
-from intel.time_display import (
-    TIME_DISPLAY_SESSION_KEY,
-    get_time_display_definition,
-)
-from intel.views_whois import lookup_whois_target
 from intel.services.reporting import generate_exec_report
-
+from intel.time_display import TIME_DISPLAY_SESSION_KEY, get_time_display_definition
+from intel.views_whois import lookup_whois_target
 WHOIS_SUPPORTED_VALUE_TYPES = {
     "domain",
     "host",
@@ -146,7 +144,7 @@ def malware_family_view(request):
 
 @role_required(VIEWER_GROUP)
 def documentation_view(request, doc_name=None):
-    import markdown
+    #import markdown
 
     docs_dir = Path(settings.BASE_DIR) / "docs"
     if not docs_dir.exists() or not docs_dir.is_dir():

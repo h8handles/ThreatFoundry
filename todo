@@ -14,8 +14,8 @@
 - [ ] Do a fresh pull on linux staging and recheck Quick Start steps for anything stale or misleading
 
 ### Wednesday
-- [ ] Move `import markdown` from inside `documentation_view()` to module level in `intel/views.py`
-- [ ] Clean up import ordering in `intel/views.py`
+- [X] Move `import markdown` from inside `documentation_view()` to module level in `intel/views.py`
+- [X] Clean up import ordering in `intel/views.py`
 - [ ] Do a quick pass for other lazy imports that should be top level
 - [ ] Run the docs page manually to confirm nothing broke
 
