@@ -9,10 +9,9 @@
 - [X] Manually test IOC detail WHOIS behavior after route cleanup
 
 ### Tuesday
-- [ ] Update `README.md` to use `localhost:8080` as the main local example
-- [ ] Remove or demote the hardcoded `172.30.150.130:8080` example in docs
-- [ ] Add a clear note that wildcard hosts in debug are for local development only
-- [ ] Recheck Quick Start steps for anything stale or misleading
+- [X] Update `README.md` to use `localhost:8080` as the main local example
+- [X] Remove or demote the hardcoded `172.30.150.130:8080` example in docs
+- [ ] Do a fresh pull on linux staging and recheck Quick Start steps for anything stale or misleading
 
 ### Wednesday
 - [ ] Move `import markdown` from inside `documentation_view()` to module level in `intel/views.py`
