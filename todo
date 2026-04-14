@@ -68,3 +68,4 @@
 - [ ] Decide whether synchronous WHOIS lookup on IOC detail is acceptable
 - [ ] Standardize internal URL usage to one dashboard route name
 - [ ] Look for other low risk cleanup opportunities in `intel/views.py`
+- [ ] Fix VirusTotal Raw Payload on IOC details page to have the option to collaps and expand default should be collapsed.
