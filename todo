@@ -1,10 +1,12 @@
 ## Weekly Bug Checklist
 
 ### Monday
-- [ ] Remove or justify the duplicate WHOIS API route in `intel/urls.py`
-- [ ] Verify only one canonical WHOIS endpoint is used in templates and JS
-- [ ] Confirm no old route references remain after cleanup
-- [ ] Manually test IOC detail WHOIS behavior after route cleanup
+- [X] Remove or justify the duplicate WHOIS API route in `intel/urls.py`
+- [X] Verify only one canonical WHOIS endpoint is used in templates 
+        - got rid of the ioc_blade_details.html template seems to be a dupe but put .bak of it in local directory just incase
+- [X] Verify only one canonical WHOIS endpoint is used in JS
+- [X] Confirm no old route references remain after cleanup
+- [X] Manually test IOC detail WHOIS behavior after route cleanup
 
 ### Tuesday
 - [ ] Update `README.md` to use `localhost:8080` as the main local example
@@ -41,10 +43,27 @@
 - [ ] Note any slow page loads, especially IOC detail with WHOIS enabled
 
 ### Documentation Drift Check
-- [ ] Confirm every route listed in `README.md` still exists
+- [X] Confirm every route listed in `README.md` still exists (handled by /intel/management/drift_detector.py)
 - [ ] Confirm every management command listed in `README.md` still exists
 - [ ] Confirm documented env vars are still actually used
-- [ ] Remove any stale references from old features or old paths
+- [X] Remove any stale references from old features or old paths
+        Route Drift Detection Report
+        ============================
+        ✅ /auth/login/ exists
+        ✅ /auth/register/ exists
+        ✅ /auth/logout/ exists (POST only)
+        ✅ / exists
+        ✅ /dashboard/ exists
+        ✅ /assistant/ exists
+        ✅ /api/assistant/chat/ exists (POST only)
+        ✅ /api/assistant/context/ exists (POST only)
+        ✅ /docs/ exists
+        ✅ /docs/some-doc/ exists
+        ✅ /malware/ exists
+        ✅ /ioc-blade/ exists
+        ✅ /ioc/1/ exists
+        ✅ /admin/ exists
+
 
 ### Stretch Items If Time Remains
 - [ ] Decide whether synchronous WHOIS lookup on IOC detail is acceptable

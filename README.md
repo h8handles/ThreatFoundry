@@ -83,12 +83,12 @@ python manage.py import_urlhaus
 python manage.py runserver
 ```
 
-Default bind: `172.30.150.130:8080`
+Default bind: `localhost:8080`
 
 8. Open:
 
 ```text
-http://172.30.150.130:8080/
+http://localhost:8080/
 ```
 
 ## Environment Variables
@@ -122,7 +122,7 @@ Set provider switches with `<PROVIDER>_ENABLED=true|false`.
 Examples: `THREATFOX_ENABLED`, `ALIENVAULT_ENABLED`, `URLHAUS_ENABLED`, `VIRUSTOTAL_ENABLED`.
 
 ### Refresh Pipeline
-
+WIP linux feature
 - `INTEL_REFRESH_SCHEDULE` (default `0 2 * * *`)
 - `INTEL_REFRESH_DEFAULT_SINCE` (default `24h`)
 - `INTEL_REFRESH_TIMEOUT` (seconds, default `30`)
@@ -138,6 +138,7 @@ Examples: `THREATFOX_ENABLED`, `ALIENVAULT_ENABLED`, `URLHAUS_ENABLED`, `VIRUSTO
 - `INTEL_CHAT_N8N_WEBHOOK_URL`
 - `INTEL_CHAT_N8N_TIMEOUT`
 - `INTEL_CHAT_N8N_BEARER_TOKEN`
+- `INTEL_CHAT_CONTEXT_API_TOKEN`
 
 ## Database Configuration
 
@@ -219,6 +220,7 @@ The command itself appends to the configured logfile, records per-provider outco
 - `/` and `/dashboard/`: dashboard, requires `viewer` or higher
 - `/assistant/`: analyst assistant page, requires `analyst` or higher
 - `/api/assistant/chat/`: assistant API endpoint (POST), requires authenticated `analyst` or higher
+- `/api/assistant/context/`: assistant context API endpoint (POST), requires analyst auth or a valid `X-ThreatFoundry-Service-Token`
 - `/docs/`: in-app docs browser, requires `viewer` or higher
 - `/docs/<doc_name>/`: specific doc page, requires `viewer` or higher
 - `/malware/`: malware directory and family view, requires `viewer` or higher
@@ -239,6 +241,7 @@ INTEL_CHAT_PROVIDER=n8n
 INTEL_CHAT_N8N_WEBHOOK_URL=https://<your-workspace>.app.n8n.cloud/webhook/soc-analyst-bot
 INTEL_CHAT_N8N_TIMEOUT=20
 INTEL_CHAT_N8N_BEARER_TOKEN=
+INTEL_CHAT_CONTEXT_API_TOKEN=
 ```
 
 Use `INTEL_CHAT_PROVIDER=hybrid` to fall back to local responses if n8n is unavailable.

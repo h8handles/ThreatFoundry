@@ -1,0 +1,272 @@
+{
+  "name": "ThreatFoundry Analyst Chatbot",
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "webhook-analyst-chat",
+      "name": "Analyst Chat Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        280
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "threatfoundry-analyst-chat",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "code-parse-request",
+      "name": "Parse Incoming Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        470,
+        280
+      ],
+      "parameters": {
+        "jsCode": "const payload = $json || {};\nconst userQuery = String(payload.user_query || payload.prompt || '').trim();\nif (!userQuery) {\n  throw new Error('Missing user_query/prompt in webhook payload.');\n}\nconst summaryMode = String(payload.summary_mode || 'analyst').trim().toLowerCase() || 'analyst';\nconst dashboardFilters = payload.dashboard_filters && typeof payload.dashboard_filters === 'object' ? payload.dashboard_filters : {};\n\nreturn [{\n  json: {\n    user_query: userQuery,\n    summary_mode: summaryMode,\n    dashboard_filters: dashboardFilters\n  }\n}];"
+      }
+    },
+    {
+      "id": "http-fetch-context",
+      "name": "Fetch ThreatFoundry Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        740,
+        280
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THREATFOUNDRY_CONTEXT_URL || 'http://host.docker.internal:8080/api/assistant/context/' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-ThreatFoundry-Service-Token",
+              "value": "={{ $env.INTEL_CHAT_CONTEXT_API_TOKEN || '' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { prompt: $json.user_query, summary_mode: $json.summary_mode, dashboard_filters: $json.dashboard_filters || {} } }}",
+        "options": {
+          "timeout": 20000
+        }
+      }
+    },
+    {
+      "id": "code-build-grounded-prompt",
+      "name": "Build Grounded Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        280
+      ],
+      "parameters": {
+        "jsCode": "const contextResponse = $json || {};\nif (!contextResponse.ok) {\n  const err = String(contextResponse.error || 'ThreatFoundry context API call failed.');\n  throw new Error(err);\n}\n\nconst userQuery = String(contextResponse.user_query || '').trim();\nconst summaryMode = String(contextResponse.summary_mode || 'analyst').trim().toLowerCase();\nconst iocContext = contextResponse.ioc_context && typeof contextResponse.ioc_context === 'object' ? contextResponse.ioc_context : {};\nconst metrics = iocContext.metrics && typeof iocContext.metrics === 'object' ? iocContext.metrics : {};\nconst lookup = iocContext.lookup && typeof iocContext.lookup === 'object' ? iocContext.lookup : {};\n\nconst totalIocs = Number(metrics.total_iocs || 0);\nconst hasSpecificTargets = !!lookup.has_specific_targets;\nconst foundAnyTargets = !!lookup.found_any;\nconst hasRelevantData = totalIocs > 0 && (!hasSpecificTargets || foundAnyTargets);\n\nconst groundingRules = [\n  'Use ONLY the provided ThreatFoundry IOC context as source of truth.',\n  'Do not invent indicators, sources, confidence values, or timelines.',\n  'If the provided context does not support the answer, state that clearly.',\n  'When possible, cite concrete metrics, IOC values, and source names from context.'\n];\n\nconst modelPrompt = [\n  'SYSTEM INSTRUCTIONS:',\n  ...groundingRules.map((line) => `- ${line}`),\n  '',\n  `Requested summary mode: ${summaryMode || 'analyst'}`,\n  `Analyst question: ${userQuery}`,\n  '',\n  'ThreatFoundry context JSON:',\n  JSON.stringify(iocContext, null, 2),\n  '',\n  'Return a direct analyst answer followed by concise bullet findings and actions.'\n].join('\\n');\n\nreturn [{\n  json: {\n    user_query: userQuery,\n    summary_mode: summaryMode || 'analyst',\n    has_relevant_data: hasRelevantData,\n    no_data_reason: !hasRelevantData\n      ? (totalIocs === 0\n          ? 'No IOC records are available in the current ThreatFoundry scope.'\n          : 'No records matched the specific IOC target(s) in this scope.')\n      : '',\n    ioc_context: iocContext,\n    model_prompt: modelPrompt\n  }\n}];"
+      }
+    },
+    {
+      "id": "if-has-relevant-data",
+      "name": "Has Relevant Data?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        280
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.has_relevant_data }}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "http-call-ollama",
+      "name": "Call Ollama",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        180
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OLLAMA_API_URL || 'http://host.docker.internal:11434/api/generate' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: ($env.OLLAMA_MODEL || 'llama3.1:8b'), prompt: $json.model_prompt, stream: false, options: { temperature: 0.2 } } }}",
+        "options": {
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "code-extract-answer",
+      "name": "Extract Model Answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1790,
+        180
+      ],
+      "parameters": {
+        "jsCode": "const upstream = ($items('Build Grounded Prompt', 0, 0)[0] || {}).json || {};\nconst iocContext = upstream.ioc_context && typeof upstream.ioc_context === 'object' ? upstream.ioc_context : {};\nconst lookup = iocContext.lookup && typeof iocContext.lookup === 'object' ? iocContext.lookup : {};\n\nconst modelResponse = String(($json || {}).response || '').trim();\nconst answer = modelResponse || 'Model did not return text. ThreatFoundry data could not be summarized safely.';\n\nconst supportingRecords = lookup.found_any && Array.isArray(lookup.results) && lookup.results.length\n  ? (((lookup.results.find((row) => Number(row.matched_count || 0) > 0) || {}).top_records) || []).slice(0, 5)\n  : (Array.isArray(iocContext.top_suspicious) ? iocContext.top_suspicious.slice(0, 5) : []);\n\nreturn [{\n  json: {\n    answer,\n    key_findings: [\n      `Scoped IOC count: ${Number((iocContext.metrics || {}).total_iocs || 0)}.`,\n      `High-confidence IOC count: ${Number((iocContext.metrics || {}).high_confidence_iocs || 0)}.`\n    ],\n    recommended_actions: [\n      'Validate the top supporting IOCs in the ThreatFoundry IOC detail view.',\n      'Prioritize high-confidence indicators for immediate triage.',\n      'Pivot on source and malware family for campaign-level linkage.'\n    ],\n    uncertainty: [],\n    supporting_records: supportingRecords,\n    provider: 'n8n-ollama',\n    source_of_truth: 'threatfoundry_database'\n  }\n}];"
+      }
+    },
+    {
+      "id": "code-no-data-response",
+      "name": "Build No Data Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        380
+      ],
+      "parameters": {
+        "jsCode": "const payload = $json || {};\nreturn [{\n  json: {\n    answer: String(payload.no_data_reason || 'No relevant ThreatFoundry data was found for this question.'),\n    key_findings: [\n      'The workflow intentionally avoided generating unsupported conclusions.'\n    ],\n    recommended_actions: [\n      'Adjust dashboard filters or IOC target format and retry the query.',\n      'Ingest additional IOC data if the scope is currently empty.'\n    ],\n    uncertainty: [\n      'No relevant IOC evidence was available in the scoped ThreatFoundry dataset.'\n    ],\n    supporting_records: [],\n    provider: 'n8n-ollama',\n    source_of_truth: 'threatfoundry_database'\n  }\n}];"
+      }
+    },
+    {
+      "id": "respond-webhook",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2050,
+        280
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Analyst Chat Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Incoming Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Incoming Request": {
+      "main": [
+        [
+          {
+            "node": "Fetch ThreatFoundry Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch ThreatFoundry Context": {
+      "main": [
+        [
+          {
+            "node": "Build Grounded Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Grounded Prompt": {
+      "main": [
+        [
+          {
+            "node": "Has Relevant Data?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Relevant Data?": {
+      "main": [
+        [
+          {
+            "node": "Call Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build No Data Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Ollama": {
+      "main": [
+        [
+          {
+            "node": "Extract Model Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Model Answer": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build No Data Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
