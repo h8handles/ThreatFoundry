@@ -9,6 +9,7 @@ __pycache__/
 venv/
 env/
 ENV/
+threatfoundry/
 
 # Environment files
 .env
@@ -54,6 +55,7 @@ ioc_workbench_repo_summary.pdf
 # Local app/runtime artifacts
 media/
 staticfiles/
+var/
 tmp/
 temp/
 *.tmp

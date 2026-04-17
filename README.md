@@ -204,7 +204,7 @@ Recommended WSL2 setup:
 4. Install the cron entry with `crontab -e`:
 
 ```cron
-0 2 * * * cd /home/<user>/ThreatFoundry && /home/<user>/ThreatFoundry/threatfoundry/bin/python manage.py refresh_intel_scheduled --timeout 30
+0 2 * * * cd /home/<user>/ThreatFoundry && /home/<user>/ThreatFoundry/.venv/bin/python manage.py refresh_intel_scheduled --timeout 30
 ```
 
 The command itself appends to the configured logfile, records per-provider outcomes in the database, preserves provider enable/disable rules, and continues past individual provider failures.
