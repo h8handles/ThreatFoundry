@@ -1,4 +1,6 @@
+import html
 import json
+import logging
 from pathlib import Path
 
 import markdown
@@ -26,6 +28,9 @@ from intel.services.dashboard import (
 from intel.services.reporting import generate_exec_report
 from intel.time_display import TIME_DISPLAY_SESSION_KEY, get_time_display_definition
 from intel.views_whois import lookup_whois_target
+
+log = logging.getLogger(__name__)
+
 WHOIS_SUPPORTED_VALUE_TYPES = {
     "domain",
     "host",
@@ -146,7 +151,7 @@ def malware_family_view(request):
 def documentation_view(request, doc_name=None):
     #import markdown
 
-    docs_dir = Path(settings.BASE_DIR) / "docs"
+    docs_dir = (Path(settings.BASE_DIR) / "docs").resolve()
     if not docs_dir.exists() or not docs_dir.is_dir():
         raise Http404("Documentation directory not found.")
 
@@ -163,14 +168,23 @@ def documentation_view(request, doc_name=None):
     if doc_name not in doc_files:
         raise Http404("Documentation page not found.")
 
-    doc_path = docs_dir / doc_name
+    doc_path = (docs_dir / doc_name).resolve()
+    try:
+        doc_path.relative_to(docs_dir)
+    except ValueError as exc:
+        log.warning("Rejected documentation path outside docs directory: %r", doc_name)
+        raise Http404("Documentation page not found.") from exc
+
     try:
         md_content = doc_path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise Http404("Documentation page not found.") from exc
+    except OSError as exc:
+        log.exception("Documentation read failed for %s", doc_path)
+        raise Http404("Documentation page not found.") from exc
 
     html_content = markdown.markdown(
-        md_content,
+        html.escape(md_content),
         extensions=["tables", "fenced_code"],
     )
 
@@ -191,9 +205,11 @@ def set_time_display_view(request):
     request.session[TIME_DISPLAY_SESSION_KEY] = get_time_display_definition(selected).key
 
     redirect_to = request.POST.get("next")
+    allowed_hosts = {request.get_host()}
+    allowed_hosts.update(host for host in settings.ALLOWED_HOSTS if host and host != "*")
     if redirect_to and url_has_allowed_host_and_scheme(
         url=redirect_to,
-        allowed_hosts={request.get_host()},
+        allowed_hosts=allowed_hosts,
         require_https=request.is_secure(),
     ):
         return redirect(redirect_to)

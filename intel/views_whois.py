@@ -15,10 +15,10 @@ def lookup_whois_target(target):
         result = enrich_target(target)
     except InvalidWhoisTargetError as exc:
         log.warning("WHOIS lookup invalid target: %r (%s)", target, exc)
-        return {"ok": False, "error": str(exc), "status": 400}
+        return {"ok": False, "error": "Invalid lookup target.", "status": 400}
     except Exception as exc:
         log.exception("WHOIS lookup failed: target=%r error=%s", target, exc)
-        return {"ok": False, "error": f"Lookup failed: {exc}", "status": 502}
+        return {"ok": False, "error": "Lookup failed.", "status": 502}
 
     has_whois_data = bool(result.get("summary", {}).get("has_whois_data"))
     has_geolocation = bool(result.get("summary", {}).get("has_geolocation"))

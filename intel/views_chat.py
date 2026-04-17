@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 
 from django.http import JsonResponse
@@ -17,6 +18,8 @@ from intel.services.chatbot import (
     resolve_summary_mode,
 )
 from intel.services.dashboard import parse_dashboard_filters
+
+log = logging.getLogger(__name__)
 
 
 @role_required(ANALYST_GROUP)
@@ -53,8 +56,9 @@ def analyst_chat_api_view(request):
             summary_mode=payload.get("summary_mode"),
             filters_payload=payload.get("dashboard_filters"),
         )
-    except ChatbotServiceError as exc:
-        return JsonResponse({"ok": False, "error": str(exc)}, status=502)
+    except ChatbotServiceError:
+        log.exception("Analyst chat response generation failed")
+        return JsonResponse({"ok": False, "error": "Assistant response generation failed."}, status=502)
 
     return JsonResponse({"ok": True, "response": response_payload})
 

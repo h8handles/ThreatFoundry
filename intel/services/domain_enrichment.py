@@ -104,6 +104,8 @@ def _format_ssl_name(name_tuples) -> Optional[str]:
 def _ssl_certificate(domain: str, timeout: int = SSL_TIMEOUT) -> Dict[str, Optional[str]]:
     try:
         context = ssl.create_default_context()
+        context.check_hostname = True
+        context.verify_mode = ssl.CERT_REQUIRED
         with socket.create_connection((domain, 443), timeout=timeout) as tcp_socket:
             with context.wrap_socket(tcp_socket, server_hostname=domain) as tls_socket:
                 cert_dict = tls_socket.getpeercert() or {}
