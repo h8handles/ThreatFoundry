@@ -39,6 +39,13 @@ from intel.services.dashboard import (
 from intel.services.ingestion import normalize_alienvault_record, normalize_urlhaus_record, upsert_iocs
 from intel.services.provider_registry import build_provider_links, get_provider_availabilities
 from intel.services.provider_runs import ProviderRunRecorder
+from intel.services.reporting import build_malware_attribution, generate_exec_report
+from intel.services.vulnerability_intel import (
+    normalize_cisa_kev_record,
+    normalize_cve_feed_record,
+    normalize_nvd_cve_record,
+)
+from intel.services.mitre_attack import normalize_attack_pattern
 from intel.services.whois_enrichment import enrich_target, get_registrable_domain
 from intel.tests_provider_registry import ProviderRegistryModuleTests
 from intel.services.virustotal import (
@@ -47,6 +54,7 @@ from intel.services.virustotal import (
     derive_platform_updates,
 )
 from intel.time_display import TIME_DISPLAY_SESSION_KEY
+from intel.views import render_safe_documentation_markdown
 
 
 User = get_user_model()
@@ -152,6 +160,128 @@ class AlienVaultNormalizationTests(SimpleTestCase):
         self.assertEqual(normalized["value"], "https://cdn.bad-download.example/payload.zip")
         self.assertEqual(normalized["reference_url"], "https://urlhaus.abuse.ch/url/555001/")
         self.assertEqual(normalized["external_references"][0]["provider"], "urlhaus")
+
+
+class PublicIntelNormalizationTests(SimpleTestCase):
+    def test_normalize_cisa_kev_record_maps_cve_shape(self):
+        normalized = normalize_cisa_kev_record(
+            {
+                "cveID": "CVE-2026-12345",
+                "vendorProject": "ExampleVendor",
+                "product": "ExampleProduct",
+                "vulnerabilityName": "Example Product Injection Vulnerability",
+                "dateAdded": "2026-04-17",
+                "knownRansomwareCampaignUse": "Known",
+                "notes": "https://example.test/advisory",
+            }
+        )
+
+        self.assertEqual(normalized["source_name"], "cisa_kev")
+        self.assertEqual(normalized["value"], "CVE-2026-12345")
+        self.assertEqual(normalized["value_type"], "cve")
+        self.assertEqual(normalized["threat_type"], "known_exploited_vulnerability")
+        self.assertIn("cisa-kev", normalized["tags"])
+        self.assertEqual(normalized["reference_url"], "https://example.test/advisory")
+
+    def test_cisa_kev_reference_url_field_accepts_long_feed_notes(self):
+        field = IntelIOC._meta.get_field("reference_url")
+
+        self.assertIsNone(getattr(field, "max_length", None))
+
+    def test_normalize_nvd_cve_record_maps_cve_shape(self):
+        normalized = normalize_nvd_cve_record(
+            {
+                "cve": {
+                    "id": "CVE-2026-22222",
+                    "sourceIdentifier": "security@example.test",
+                    "published": "2026-04-17T12:00:00.000",
+                    "lastModified": "2026-04-18T12:00:00.000",
+                    "descriptions": [{"lang": "en", "value": "Example description"}],
+                    "references": [{"url": "https://vendor.example/advisory"}],
+                    "metrics": {
+                        "cvssMetricV31": [
+                            {
+                                "cvssData": {"baseSeverity": "HIGH"},
+                            }
+                        ]
+                    },
+                }
+            }
+        )
+
+        self.assertEqual(normalized["source_name"], "nvd")
+        self.assertEqual(normalized["source_record_id"], "CVE-2026-22222")
+        self.assertEqual(normalized["threat_type"], "HIGH")
+        self.assertEqual(normalized["reference_url"], "https://vendor.example/advisory")
+
+    def test_normalize_cve_feed_record_maps_cve_list_v5_shape(self):
+        normalized = normalize_cve_feed_record(
+            {
+                "cveMetadata": {
+                    "cveId": "CVE-2026-33333",
+                    "datePublished": "2026-04-17T12:00:00.000Z",
+                    "dateUpdated": "2026-04-18T12:00:00.000Z",
+                },
+                "containers": {
+                    "cna": {
+                        "providerMetadata": {"shortName": "Example CNA"},
+                        "descriptions": [{"lang": "en", "value": "Example CVE"}],
+                        "affected": [{"vendor": "ExampleVendor", "product": "ExampleProduct"}],
+                        "references": [{"url": "https://cna.example/CVE-2026-33333"}],
+                    }
+                },
+            }
+        )
+
+        self.assertEqual(normalized["source_name"], "cve")
+        self.assertEqual(normalized["value_type"], "cve")
+        self.assertEqual(normalized["reporter"], "Example CNA")
+        self.assertIn("ExampleProduct", normalized["tags"])
+
+    def test_normalize_cve_feed_record_handles_list_dates(self):
+        normalized = normalize_cve_feed_record(
+            {
+                "cveMetadata": {
+                    "cveId": "CVE-2026-44444",
+                    "datePublished": ["2026-04-17T12:00:00.000Z"],
+                    "dateUpdated": ["2026-04-18T12:00:00.000Z"],
+                },
+                "containers": {
+                    "cna": {
+                        "providerMetadata": {"shortName": "Example CNA"},
+                        "references": [{"url": "https://cna.example/CVE-2026-44444"}],
+                    }
+                },
+            }
+        )
+
+        self.assertEqual(normalized["source_name"], "cve")
+        self.assertIsNotNone(normalized["first_seen"])
+        self.assertIsNotNone(normalized["last_seen"])
+
+    def test_normalize_attack_pattern_maps_mitre_technique_shape(self):
+        normalized = normalize_attack_pattern(
+            {
+                "type": "attack-pattern",
+                "id": "attack-pattern--123",
+                "name": "Command and Scripting Interpreter",
+                "created": "2026-04-17T12:00:00.000Z",
+                "modified": "2026-04-18T12:00:00.000Z",
+                "kill_chain_phases": [{"phase_name": "execution"}],
+                "external_references": [
+                    {
+                        "source_name": "mitre-attack",
+                        "external_id": "T1059",
+                        "url": "https://attack.mitre.org/techniques/T1059/",
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(normalized["source_name"], "mitre_attack")
+        self.assertEqual(normalized["source_record_id"], "T1059")
+        self.assertEqual(normalized["value_type"], "attack_technique")
+        self.assertEqual(normalized["threat_type"], "execution")
 
 
 class CorrelationEngineTests(TestCase):
@@ -370,6 +500,11 @@ class RefreshIntelCommandTests(TestCase):
             "OTX_API_KEY": "test-otx-key",
             "URLHAUS_ENABLED": "true",
             "VIRUSTOTAL_ENABLED": "false",
+            "CISA_KEV_ENABLED": "false",
+            "CVE_ENABLED": "false",
+            "NVD_ENABLED": "false",
+            "MITRE_ATTACK_ENABLED": "false",
+            "THREAT_ACTOR_MAPPING_ENABLED": "false",
         },
         clear=False,
     )
@@ -462,6 +597,11 @@ class RefreshIntelCommandTests(TestCase):
             "OTX_API_KEY": "test-otx-key",
             "URLHAUS_ENABLED": "false",
             "VIRUSTOTAL_ENABLED": "false",
+            "CISA_KEV_ENABLED": "false",
+            "CVE_ENABLED": "false",
+            "NVD_ENABLED": "false",
+            "MITRE_ATTACK_ENABLED": "false",
+            "THREAT_ACTOR_MAPPING_ENABLED": "false",
         },
         clear=False,
     )
@@ -569,6 +709,136 @@ class RefreshIntelCommandTests(TestCase):
             },
         )
         self.assertEqual(len(detail.details["record_diagnostics"]), 2)
+
+    @patch.dict("os.environ", {"CISA_KEV_ENABLED": "true"}, clear=False)
+    @patch("intel.services.refresh_pipeline.fetch_cisa_kev_catalog")
+    def test_refresh_intel_runs_cisa_kev_provider(self, mock_fetch):
+        mock_fetch.return_value = {
+            "catalogVersion": "2026.04.18",
+            "vulnerabilities": [
+                {
+                    "cveID": "CVE-2026-12345",
+                    "vendorProject": "ExampleVendor",
+                    "product": "ExampleProduct",
+                    "dateAdded": "2026-04-17",
+                }
+            ],
+        }
+
+        call_command("refresh_intel", provider="cisa_kev", no_feed_refresh=True)
+
+        record = IntelIOC.objects.get(source_name="cisa_kev")
+        self.assertEqual(record.value, "CVE-2026-12345")
+        detail = ProviderRunDetail.objects.get(provider_name="cisa_kev")
+        self.assertEqual(detail.status, ProviderRunDetail.Status.SUCCESS)
+        self.assertEqual(detail.records_created, 1)
+
+    @patch.dict("os.environ", {"NVD_ENABLED": "true"}, clear=False)
+    @patch("intel.services.refresh_pipeline.fetch_nvd_cves")
+    def test_refresh_intel_runs_nvd_provider(self, mock_fetch):
+        mock_fetch.return_value = {
+            "totalResults": 1,
+            "vulnerabilities": [
+                {
+                    "cve": {
+                        "id": "CVE-2026-22222",
+                        "published": "2026-04-17T12:00:00.000",
+                        "lastModified": "2026-04-18T12:00:00.000",
+                        "descriptions": [{"lang": "en", "value": "Example description"}],
+                        "references": [{"url": "https://vendor.example/advisory"}],
+                    }
+                }
+            ],
+        }
+
+        call_command("refresh_intel", provider="nvd", no_feed_refresh=True)
+
+        record = IntelIOC.objects.get(source_name="nvd")
+        self.assertEqual(record.value, "CVE-2026-22222")
+        detail = ProviderRunDetail.objects.get(provider_name="nvd")
+        self.assertEqual(detail.status, ProviderRunDetail.Status.SUCCESS)
+
+    @patch.dict("os.environ", {"CVE_ENABLED": "true"}, clear=False)
+    @patch("intel.services.refresh_pipeline.fetch_cve_feed_records")
+    def test_refresh_intel_runs_cve_feed_provider(self, mock_fetch):
+        mock_fetch.return_value = [
+            {
+                "cveMetadata": {
+                    "cveId": "CVE-2026-33333",
+                    "datePublished": "2026-04-17T12:00:00.000Z",
+                    "dateUpdated": "2026-04-18T12:00:00.000Z",
+                },
+                "containers": {
+                    "cna": {
+                        "providerMetadata": {"shortName": "Example CNA"},
+                        "references": [{"url": "https://cna.example/CVE-2026-33333"}],
+                    }
+                },
+            }
+        ]
+
+        call_command("refresh_intel", provider="cve", no_feed_refresh=True)
+
+        record = IntelIOC.objects.get(source_name="cve")
+        self.assertEqual(record.value, "CVE-2026-33333")
+        detail = ProviderRunDetail.objects.get(provider_name="cve")
+        self.assertEqual(detail.status, ProviderRunDetail.Status.SUCCESS)
+
+    @patch.dict("os.environ", {"MITRE_ATTACK_ENABLED": "true"}, clear=False)
+    @patch("intel.services.refresh_pipeline.fetch_mitre_attack_enterprise")
+    def test_refresh_intel_runs_mitre_attack_provider(self, mock_fetch):
+        mock_fetch.return_value = {
+            "objects": [
+                {
+                    "type": "attack-pattern",
+                    "name": "Command and Scripting Interpreter",
+                    "kill_chain_phases": [{"phase_name": "execution"}],
+                    "external_references": [
+                        {
+                            "source_name": "mitre-attack",
+                            "external_id": "T1059",
+                            "url": "https://attack.mitre.org/techniques/T1059/",
+                        }
+                    ],
+                }
+            ]
+        }
+
+        call_command("refresh_intel", provider="mitre_attack", no_feed_refresh=True)
+
+        record = IntelIOC.objects.get(source_name="mitre_attack")
+        self.assertEqual(record.source_record_id, "T1059")
+        detail = ProviderRunDetail.objects.get(provider_name="mitre_attack")
+        self.assertEqual(detail.status, ProviderRunDetail.Status.SUCCESS)
+
+    @patch.dict("os.environ", {"THREAT_ACTOR_MAPPING_ENABLED": "true"}, clear=False)
+    def test_refresh_intel_runs_internal_threat_actor_mapping_provider(self):
+        IntelIOC.objects.create(
+            source_name="threatfox",
+            source_record_id="map-known-1",
+            value="mapped.example",
+            value_type="domain",
+            threat_type="phishing",
+            malware_family="ClearFake",
+            tags=["clearfake"],
+        )
+        unknown = IntelIOC.objects.create(
+            source_name="alienvault",
+            source_record_id="map-unknown-1",
+            value="mapped.example",
+            value_type="domain",
+            threat_type="",
+            malware_family="",
+            tags=["clearfake"],
+        )
+
+        call_command("refresh_intel", provider="threat_actor_mapping", no_feed_refresh=True)
+
+        unknown.refresh_from_db()
+        self.assertEqual(unknown.likely_malware_family, "ClearFake")
+        detail = ProviderRunDetail.objects.get(provider_name="threat_actor_mapping")
+        self.assertEqual(detail.status, ProviderRunDetail.Status.SUCCESS)
+        self.assertTrue(detail.details["internal_enrichment"])
 
     @patch.dict("os.environ", {"THREATFOX_API_KEY": "test-threatfox-key"}, clear=False)
     @patch("intel.services.refresh_pipeline.fetch_threatfox_iocs")
@@ -814,6 +1084,64 @@ class ProviderRunRecorderTests(TestCase):
         self.assertEqual(final_event["records_skipped"], 3)
 
 
+class ExecutiveReportAttributionTests(SimpleTestCase):
+    def test_malware_attribution_identifies_single_dominant_family(self):
+        attribution = build_malware_attribution(
+            malware_distribution={
+                "labels": ["Cobalt Strike", "Unknown"],
+                "values": [22, 8],
+            }
+        )
+
+        self.assertTrue(attribution["has_attribution"])
+        self.assertEqual(attribution["dominant_family"], "Cobalt Strike")
+        self.assertEqual(attribution["dominant_count"], 22)
+        self.assertIn("attributable to Cobalt Strike", attribution["summary"])
+
+    def test_malware_attribution_summarizes_mixed_families(self):
+        attribution = build_malware_attribution(
+            malware_distribution={
+                "labels": ["Cobalt Strike", "ClearFake", "AsyncRAT"],
+                "values": [6, 4, 3],
+            }
+        )
+
+        self.assertTrue(attribution["has_attribution"])
+        self.assertEqual(attribution["dominant_family"], "Cobalt Strike")
+        self.assertIn("attribution is mixed", attribution["summary"])
+        self.assertEqual(
+            [item["label"] for item in attribution["families_observed"]],
+            ["Cobalt Strike", "ClearFake", "AsyncRAT"],
+        )
+
+    def test_malware_attribution_degrades_cleanly_without_family_data(self):
+        attribution = build_malware_attribution(
+            malware_distribution={
+                "labels": ["Unknown", ""],
+                "values": [10, 2],
+            }
+        )
+
+        self.assertFalse(attribution["has_attribution"])
+        self.assertEqual(attribution["families_observed"], [])
+        self.assertIn("No malware family attribution", attribution["summary"])
+
+    def test_exec_report_renders_family_attribution_in_markdown(self):
+        report = generate_exec_report(
+            {"total_iocs": 24, "average_confidence": 82},
+            ioc_blades=[],
+            recent_ioc_rows=[],
+            malware_distribution={
+                "labels": ["Cobalt Strike", "ClearFake"],
+                "values": [22, 2],
+            },
+        )
+
+        self.assertIn("Dominant Malware Family: Cobalt Strike (22)", report["markdown"])
+        self.assertIn("Cobalt Strike is the dominant malware family", report["markdown"])
+        self.assertIn("<h2>Malware Family Attribution</h2>", report["html"])
+
+
 class IngestionStructuredLoggingTests(TestCase):
     @patch("intel.services.ingestion.logger.info")
     def test_upsert_iocs_emits_structured_success_log(self, mock_log_info):
@@ -909,7 +1237,7 @@ class AlienVaultPresentationTests(ViewerAccessTestCase):
         self.assertEqual(by_key["threatfox"]["health_state"], "stale")
         self.assertEqual(by_key["alienvault"]["health_state"], "failing")
         self.assertEqual(by_key["urlhaus"]["health_state"], "stale")
-        self.assertEqual(by_key["nvd"]["health_state"], "warning")
+        self.assertEqual(by_key["nvd"]["health_state"], "disabled")
 
         response = self.client.get(reverse("intel:dashboard"))
         self.assertEqual(response.status_code, 200)
@@ -1074,6 +1402,40 @@ class AlienVaultPresentationTests(ViewerAccessTestCase):
         self.assertEqual(context["family_type_distribution"]["labels"], ["domain"])
         self.assertEqual(context["related_ioc_rows"][0]["summary_title"], "payload_delivery")
         self.assertTrue(context["family_references"])
+
+    def test_reference_contexts_exclude_unsafe_url_schemes(self):
+        IntelIOC.objects.create(
+            source_name="threatfox",
+            source_record_id="unsafe-link-1",
+            value="unsafe-link.example",
+            value_type="domain",
+            malware_family="ClearFake",
+            reference_url="javascript:alert(1)",
+            external_references=[
+                {
+                    "provider": "threatfox",
+                    "label": "Unsafe reference",
+                    "url": "javascript:alert(1)",
+                },
+                {
+                    "provider": "threatfox",
+                    "label": "Safe reference",
+                    "url": "https://example.test/safe",
+                },
+            ],
+        )
+
+        family_context = build_malware_family_context("ClearFake", page=1, page_size=10)
+        blade_context = build_ioc_blade_detail_context("unsafe-link.example", "domain")
+
+        self.assertEqual(family_context["family_references"], [])
+        self.assertIsNotNone(blade_context)
+        source = blade_context["source_details"][0]
+        self.assertEqual(source["references"], ["https://example.test/safe"])
+        self.assertEqual(
+            [item["url"] for item in source["external_links"]],
+            ["https://example.test/safe"],
+        )
 
     def test_confidence_distribution_excludes_unscored_alienvault_rows(self):
         for index in range(3):
@@ -1857,6 +2219,65 @@ class TimeDisplayPreferenceTests(ViewerAccessTestCase):
         self.assertContains(response, "Apr 11, 2026 7:00 PM")
 
 
+class DocumentationRenderingTests(ViewerAccessTestCase):
+    def test_safe_markdown_renders_json_code_without_visible_entities(self):
+        html_output = render_safe_documentation_markdown(
+            """# Contract
+
+```json
+{
+  "answer": "Natural analyst answer"
+}
+```
+"""
+        )
+
+        self.assertIn("<pre><code", html_output)
+        self.assertIn('"answer"', html_output)
+        self.assertIn('"Natural analyst answer"', html_output)
+        self.assertNotIn("&amp;quot;", html_output)
+
+    def test_safe_markdown_strips_unsafe_raw_html(self):
+        html_output = render_safe_documentation_markdown(
+            """# Unsafe
+
+<script>alert("xss")</script>
+<a href="javascript:alert(1)" onclick="alert(2)">bad link</a>
+"""
+        )
+
+        self.assertNotIn("<script", html_output.lower())
+        self.assertNotIn("onclick", html_output.lower())
+        self.assertNotIn("javascript:", html_output.lower())
+        self.assertIn("bad link", html_output)
+
+    def test_documentation_view_renders_code_examples_readably(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            docs_dir = Path(tmp_dir) / "docs"
+            docs_dir.mkdir()
+            (docs_dir / "contract.md").write_text(
+                """# Contract
+
+```json
+{
+  "request_id": "generated-hex-id"
+}
+```
+""",
+                encoding="utf-8",
+            )
+
+            with override_settings(BASE_DIR=Path(tmp_dir)):
+                response = self.client.get(
+                    reverse("intel:documentation_doc", args=["contract.md"])
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '"request_id"')
+        self.assertContains(response, '"generated-hex-id"')
+        self.assertNotContains(response, "&amp;quot;request_id&amp;quot;")
+
+
 class AuthenticationAndAccessControlTests(TestCase):
     def setUp(self):
         self.record = IntelIOC.objects.create(
@@ -2064,3 +2485,36 @@ class CorrelationCommandAndDashboardTests(ViewerAccessTestCase):
         self.assertEqual(distribution["Unknown"], 0)
         self.assertEqual(context["kpis"]["average_confidence"], 78)
         self.assertEqual(context["malware_clusters"][0]["label"], "ClearFake")
+
+    def test_executive_report_view_surfaces_scoped_malware_family(self):
+        IntelIOC.objects.create(
+            source_name="threatfox",
+            source_record_id="exec-report-family-1",
+            value="cobalt-one.example",
+            value_type="domain",
+            malware_family="Cobalt Strike",
+            confidence_level=90,
+        )
+        IntelIOC.objects.create(
+            source_name="alienvault",
+            source_record_id="exec-report-family-2",
+            value="cobalt-two.example",
+            value_type="domain",
+            malware_family="Cobalt Strike",
+            confidence_level=85,
+        )
+        IntelIOC.objects.create(
+            source_name="urlhaus",
+            source_record_id="exec-report-other-1",
+            value="other.example",
+            value_type="domain",
+            malware_family="ClearFake",
+            confidence_level=60,
+        )
+
+        response = self.client.get(reverse("intel:generate_exec_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Malware Family Attribution")
+        self.assertContains(response, "Dominant Malware Family: Cobalt Strike")
+        self.assertContains(response, "Cobalt Strike")

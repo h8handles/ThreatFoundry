@@ -439,6 +439,11 @@
                             </span>
                             <span class="inline-tags">Last success: {% if provider.last_success %}{% display_datetime provider.last_success %}{% else %}N/A{% endif %}</span>
                             <span class="inline-tags">Last failure: {% if provider.last_failure %}{% display_datetime provider.last_failure %}{% else %}N/A{% endif %}</span>
+                            {% if provider.last_error %}
+                                <span class="inline-tags">Error: {{ provider.last_error }}</span>
+                            {% elif provider.note %}
+                                <span class="inline-tags">{{ provider.note }}</span>
+                            {% endif %}
                         </div>
                         <strong class="provider-health-state provider-health-{{ provider.health_state }}">{{ provider.health_state|title }}</strong>
                     </li>

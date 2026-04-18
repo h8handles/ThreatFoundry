@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
@@ -10,6 +11,7 @@ from typing import Callable
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -24,9 +26,25 @@ from intel.services.ingestion import (
     upsert_iocs,
 )
 from intel.services.common import compact_error as _compact_error
+from intel.services.correlation import correlate_unknown_iocs
+from intel.services.mitre_attack import (
+    extract_attack_patterns,
+    fetch_mitre_attack_enterprise,
+    normalize_attack_pattern,
+)
 from intel.services.provider_registry import PROVIDER_SPECS, get_provider_spec
 from intel.services.threatfox import fetch_threatfox_iocs
 from intel.services.urlhaus import fetch_recent_urlhaus_iocs
+from intel.services.vulnerability_intel import (
+    extract_cisa_kev_records,
+    extract_nvd_cve_records,
+    fetch_cisa_kev_catalog,
+    fetch_cve_feed_records,
+    fetch_nvd_cves,
+    normalize_cisa_kev_record,
+    normalize_cve_feed_record,
+    normalize_nvd_cve_record,
+)
 from intel.services.virustotal import (
     UnsupportedVirusTotalLookup,
     VirusTotalNotFound,
@@ -139,6 +157,31 @@ def discover_refresh_providers(provider_name: str | None = None) -> list[Refresh
             key="virustotal",
             run_type=ProviderRunDetail.RunType.ENRICHMENT,
             execute=_run_virustotal,
+        ),
+        "cisa_kev": RefreshProvider(
+            key="cisa_kev",
+            run_type=ProviderRunDetail.RunType.INGEST,
+            execute=_run_cisa_kev,
+        ),
+        "cve": RefreshProvider(
+            key="cve",
+            run_type=ProviderRunDetail.RunType.INGEST,
+            execute=_run_cve_feed,
+        ),
+        "nvd": RefreshProvider(
+            key="nvd",
+            run_type=ProviderRunDetail.RunType.INGEST,
+            execute=_run_nvd,
+        ),
+        "mitre_attack": RefreshProvider(
+            key="mitre_attack",
+            run_type=ProviderRunDetail.RunType.INGEST,
+            execute=_run_mitre_attack,
+        ),
+        "threat_actor_mapping": RefreshProvider(
+            key="threat_actor_mapping",
+            run_type=ProviderRunDetail.RunType.ENRICHMENT,
+            execute=_run_threat_actor_mapping,
         ),
     }
 
@@ -511,6 +554,201 @@ def _run_urlhaus(
         records_updated=result.updated,
         records_skipped=result.skipped,
         details={"recent_only": True, "dry_run": dry_run},
+    )
+
+
+def _run_cisa_kev(
+    *,
+    provider_name: str,
+    run_type: str,
+    enabled_state: bool | None,
+    refresh_window: RefreshWindow,
+    timeout_seconds: int,
+    dry_run: bool,
+) -> ProviderExecutionResult:
+    payload = fetch_cisa_kev_catalog(timeout=timeout_seconds)
+    records = extract_cisa_kev_records(payload)
+    result = upsert_iocs(
+        records,
+        normalizer=normalize_cisa_kev_record,
+        dry_run=dry_run,
+        provider_name=provider_name,
+    )
+    status = ProviderRunDetail.Status.PARTIAL if result.skipped else ProviderRunDetail.Status.SUCCESS
+    return ProviderExecutionResult(
+        provider_name=provider_name,
+        run_type=run_type,
+        status=status,
+        enabled_state=enabled_state,
+        records_fetched=len(records),
+        records_created=result.created,
+        records_updated=result.updated,
+        records_skipped=result.skipped,
+        details={"catalog_version": payload.get("catalogVersion", ""), "dry_run": dry_run},
+    )
+
+
+def _run_nvd(
+    *,
+    provider_name: str,
+    run_type: str,
+    enabled_state: bool | None,
+    refresh_window: RefreshWindow,
+    timeout_seconds: int,
+    dry_run: bool,
+) -> ProviderExecutionResult:
+    payload = fetch_nvd_cves(since=refresh_window.since, timeout=timeout_seconds)
+    records = extract_nvd_cve_records(payload)
+    result = upsert_iocs(
+        records,
+        normalizer=normalize_nvd_cve_record,
+        dry_run=dry_run,
+        provider_name=provider_name,
+    )
+    status = ProviderRunDetail.Status.PARTIAL if result.skipped else ProviderRunDetail.Status.SUCCESS
+    return ProviderExecutionResult(
+        provider_name=provider_name,
+        run_type=run_type,
+        status=status,
+        enabled_state=enabled_state,
+        records_fetched=len(records),
+        records_created=result.created,
+        records_updated=result.updated,
+        records_skipped=result.skipped,
+        details={
+            "since": refresh_window.raw,
+            "total_results": payload.get("totalResults", 0),
+            "dry_run": dry_run,
+            "api_key_configured": bool(os.getenv("NVD_API_KEY")),
+        },
+    )
+
+
+def _run_cve_feed(
+    *,
+    provider_name: str,
+    run_type: str,
+    enabled_state: bool | None,
+    refresh_window: RefreshWindow,
+    timeout_seconds: int,
+    dry_run: bool,
+) -> ProviderExecutionResult:
+    limit = int(getattr(settings, "INTEL_REFRESH_CVE_FEED_LIMIT", 50))
+    records = fetch_cve_feed_records(
+        since=refresh_window.since,
+        timeout=timeout_seconds,
+        limit=limit,
+    )
+    result = upsert_iocs(
+        records,
+        normalizer=normalize_cve_feed_record,
+        dry_run=dry_run,
+        provider_name=provider_name,
+    )
+    status = ProviderRunDetail.Status.PARTIAL if result.skipped else ProviderRunDetail.Status.SUCCESS
+    return ProviderExecutionResult(
+        provider_name=provider_name,
+        run_type=run_type,
+        status=status,
+        enabled_state=enabled_state,
+        records_fetched=len(records),
+        records_created=result.created,
+        records_updated=result.updated,
+        records_skipped=result.skipped,
+        details={"since": refresh_window.raw, "limit": limit, "dry_run": dry_run},
+    )
+
+
+def _run_mitre_attack(
+    *,
+    provider_name: str,
+    run_type: str,
+    enabled_state: bool | None,
+    refresh_window: RefreshWindow,
+    timeout_seconds: int,
+    dry_run: bool,
+) -> ProviderExecutionResult:
+    payload = fetch_mitre_attack_enterprise(timeout=timeout_seconds)
+    records = extract_attack_patterns(payload)
+    result = upsert_iocs(
+        records,
+        normalizer=normalize_attack_pattern,
+        dry_run=dry_run,
+        provider_name=provider_name,
+    )
+    status = ProviderRunDetail.Status.PARTIAL if result.skipped else ProviderRunDetail.Status.SUCCESS
+    return ProviderExecutionResult(
+        provider_name=provider_name,
+        run_type=run_type,
+        status=status,
+        enabled_state=enabled_state,
+        records_fetched=len(records),
+        records_created=result.created,
+        records_updated=result.updated,
+        records_skipped=result.skipped,
+        details={
+            "objects_fetched": len(payload.get("objects") or []),
+            "enterprise_attack": True,
+            "dry_run": dry_run,
+        },
+    )
+
+
+def _run_threat_actor_mapping(
+    *,
+    provider_name: str,
+    run_type: str,
+    enabled_state: bool | None,
+    refresh_window: RefreshWindow,
+    timeout_seconds: int,
+    dry_run: bool,
+) -> ProviderExecutionResult:
+    limit = int(getattr(settings, "INTEL_REFRESH_THREAT_ACTOR_MAPPING_LIMIT", 500))
+    if dry_run:
+        candidate_count = IntelIOC.objects.filter(
+            Q(threat_type__isnull=True)
+            | Q(threat_type="")
+            | Q(threat_type__iexact="unknown")
+            | Q(malware_family__isnull=True)
+            | Q(malware_family="")
+            | Q(malware_family__iexact="unknown")
+        ).count()
+        processed = min(candidate_count, limit)
+        return ProviderExecutionResult(
+            provider_name=provider_name,
+            run_type=run_type,
+            status=ProviderRunDetail.Status.SUCCESS,
+            enabled_state=enabled_state,
+            records_fetched=processed,
+            details={
+                "internal_enrichment": True,
+                "dry_run": True,
+                "note": "Would run local IOC correlation; no external actor feed is queried.",
+            },
+        )
+
+    result = correlate_unknown_iocs(limit=limit)
+    return ProviderExecutionResult(
+        provider_name=provider_name,
+        run_type=run_type,
+        status=ProviderRunDetail.Status.SUCCESS,
+        enabled_state=enabled_state,
+        records_fetched=result["processed"],
+        records_updated=result["promoted"],
+        records_skipped=result["skipped"],
+        error_summary=(
+            "No unknown IOC records were eligible for local correlation."
+            if not result["processed"]
+            else ""
+        ),
+        details={
+            "internal_enrichment": True,
+            "limit": limit,
+            "processed": result["processed"],
+            "promoted": result["promoted"],
+            "skipped": result["skipped"],
+            "note": "Local correlation maps likely malware family/threat type; it is not external actor attribution.",
+        },
     )
 
 

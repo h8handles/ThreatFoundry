@@ -394,6 +394,7 @@ textarea:focus-visible,
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+    min-width: 0;
 }
 
 .chip {
@@ -406,6 +407,10 @@ textarea:focus-visible,
     color: #c6daf7;
     padding: 4px 9px;
     font-size: 0.76rem;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .chip-strong {
@@ -455,6 +460,7 @@ textarea:focus-visible,
     list-style: none;
     display: grid;
     gap: 8px;
+    min-width: 0;
 }
 
 .rank-list li,
@@ -475,6 +481,17 @@ textarea:focus-visible,
     align-items: center;
     gap: 8px;
     padding: 8px 10px;
+    min-width: 0;
+}
+
+.reference-list li,
+.reference-list a,
+.reference-list span {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
 }
 
 .table-wrap {
@@ -501,6 +518,8 @@ textarea:focus-visible,
     border-bottom: 1px solid #1d2f4d;
     text-align: left;
     vertical-align: top;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .intel-table th {
@@ -553,12 +572,16 @@ textarea:focus-visible,
 .value-cell {
     display: grid;
     gap: 5px;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .summary-title,
 .value-cell a {
     color: var(--text-primary);
     font-weight: 600;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .cluster-link {
@@ -641,6 +664,17 @@ textarea:focus-visible,
     color: var(--text-primary);
     border-radius: var(--radius-sm);
     padding: 8px 10px;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.filter-form input,
+.filter-form select,
+.filter-form option {
+    width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
 }
 
 .filter-form input::placeholder,
@@ -688,6 +722,7 @@ textarea:focus-visible,
     position: sticky;
     top: 88px;
     align-self: start;
+    min-width: 0;
 }
 
 .kpi-strip {
@@ -804,6 +839,7 @@ textarea:focus-visible,
     display: grid;
     gap: 6px;
     color: var(--text-primary);
+    min-width: 0;
 }
 
 .family-card:hover {
@@ -814,6 +850,8 @@ textarea:focus-visible,
 .family-card-label {
     font-size: 0.95rem;
     font-weight: 700;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .family-card-count {
@@ -825,6 +863,7 @@ textarea:focus-visible,
     grid-template-columns: 1fr;
     gap: 8px;
     padding: 12px 16px 0;
+    min-width: 0;
 }
 
 .filter-form label {
@@ -832,6 +871,7 @@ textarea:focus-visible,
     gap: 6px;
     color: var(--text-secondary);
     font-size: 0.82rem;
+    min-width: 0;
 }
 
 .rail-section {
@@ -876,7 +916,8 @@ textarea:focus-visible,
     border: 1px solid #2e8161;
 }
 
-.provider-health-warning {
+.provider-health-warning,
+.provider-health-disabled {
     background: #3b3019;
     color: #ffe1a2;
     border: 1px solid #8f6f36;

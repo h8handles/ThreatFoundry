@@ -55,6 +55,33 @@
     </section>
 
     <section class="section">
+        <h2>Malware Family Attribution</h2>
+        <p>{{ report.malware_attribution.summary }}</p>
+        {% if report.malware_attribution.has_attribution %}
+            <ul>
+                <li>Dominant Malware Family: {{ report.malware_attribution.dominant_family }} ({{ report.malware_attribution.dominant_count }})</li>
+                <li>Total Attributed Records: {{ report.malware_attribution.total_attributed }}</li>
+            </ul>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Family</th>
+                        <th>Records</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for family in report.malware_attribution.families_observed %}
+                        <tr>
+                            <td>{{ family.label }}</td>
+                            <td>{{ family.count }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    </section>
+
+    <section class="section">
         <h2>Top Indicators</h2>
         {% if report.top_severity_indicators %}
             <table>

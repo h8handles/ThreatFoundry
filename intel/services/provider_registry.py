@@ -277,6 +277,55 @@ def _build_shodan_links(*, value: str, value_type: str, **kwargs) -> list[Extern
     ]
 
 
+def _build_cve_record_links(*, value: str, value_type: str, provider_name: str = "cve", **kwargs) -> list[ExternalLink]:
+    if _indicator_kind(value_type) != "cve":
+        return []
+    cve_id = _first_text(value).upper()
+    if not cve_id.startswith("CVE-"):
+        return []
+    if provider_name == "nvd":
+        return [ExternalLink(provider="nvd", label="NVD CVE detail", url=f"https://nvd.nist.gov/vuln/detail/{quote(cve_id)}")]
+    if provider_name == "cisa_kev":
+        return [
+            ExternalLink(
+                provider="cisa_kev",
+                label="CISA KEV catalog search",
+                url=f"https://www.cisa.gov/known-exploited-vulnerabilities-catalog?search_api_fulltext={quote(cve_id)}",
+            )
+        ]
+    return [ExternalLink(provider="cve", label="CVE Program record", url=f"https://www.cve.org/CVERecord?id={quote(cve_id)}")]
+
+
+def _build_cisa_kev_links(**kwargs) -> list[ExternalLink]:
+    return _build_cve_record_links(provider_name="cisa_kev", **kwargs)
+
+
+def _build_cve_links(**kwargs) -> list[ExternalLink]:
+    return _build_cve_record_links(provider_name="cve", **kwargs)
+
+
+def _build_nvd_links(**kwargs) -> list[ExternalLink]:
+    return _build_cve_record_links(provider_name="nvd", **kwargs)
+
+
+def _build_mitre_attack_links(*, value: str, value_type: str, reference_url: str = "", **kwargs) -> list[ExternalLink]:
+    direct_url = _first_text(reference_url)
+    if direct_url.startswith("http"):
+        return [ExternalLink(provider="mitre_attack", label="MITRE ATT&CK technique", url=direct_url)]
+    if _normalize_value_type(value_type) != "attacktechnique":
+        return []
+    technique_id = _first_text(value).split(" ", 1)[0]
+    if not technique_id.startswith("T"):
+        return []
+    return [
+        ExternalLink(
+            provider="mitre_attack",
+            label="MITRE ATT&CK technique",
+            url=f"https://attack.mitre.org/techniques/{quote(technique_id.replace('.', '/'))}/",
+        )
+    ]
+
+
 PROVIDER_SPECS: dict[str, ProviderSpec] = {
     "threatfox": ProviderSpec(
         key="threatfox",
@@ -333,13 +382,15 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
         category="vulnerability_intel",
         enabled_by_default=True,
         note="Public feed; no API key required for baseline usage.",
+        link_builder=_build_cisa_kev_links,
     ),
     "cve": ProviderSpec(
         key="cve",
         label="CVE Feed",
         category="vulnerability_intel",
         enabled_by_default=True,
-        note="Public CVE feed support can be extended without secrets.",
+        note="Public CVE List V5 delta feed; no API key required.",
+        link_builder=_build_cve_links,
     ),
     "nvd": ProviderSpec(
         key="nvd",
@@ -348,20 +399,22 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
         optional_env_vars=("NVD_API_KEY",),
         enabled_by_default=True,
         note="NVD can run without an API key, though an API key improves quota.",
+        link_builder=_build_nvd_links,
     ),
     "mitre_attack": ProviderSpec(
         key="mitre_attack",
         label="MITRE ATT&CK",
         category="ttp_intel",
         enabled_by_default=True,
-        note="Structure ready for ATT&CK mapping data.",
+        note="Public Enterprise ATT&CK STIX feed.",
+        link_builder=_build_mitre_attack_links,
     ),
     "threat_actor_mapping": ProviderSpec(
         key="threat_actor_mapping",
         label="Threat Actor Mapping",
         category="ttp_intel",
-        enabled_by_default=False,
-        note="Architecture placeholder only; no free canonical actor feed is wired as active functionality yet.",
+        enabled_by_default=True,
+        note="Internal correlation enrichment; this maps likely family/threat type, not external actor attribution.",
     ),
 }
 

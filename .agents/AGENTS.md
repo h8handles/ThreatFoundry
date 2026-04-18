@@ -24,13 +24,19 @@ When a task clearly matches one of the domains below, load and follow that skill
    - Use for Codex, Aider, agent prompt design, scoped task planning, session structure, tool handoff, and multi-step implementation workflows.
 
 5. `docs-readme-and-handoff`
-   - Use for README updates, implementation docs, architecture notes, issue writeups, and clean project handoff material.
+   - Use for README updates, implementation docs, architecture notes, issue writeups, code annotation passes, docs coverage expansion, in-app docs dashboard surfacing, and clean project handoff material.
 
 6. `n8n-workflow-builder`
    - Use for n8n workflow design, debugging, queue orchestration, webhook intake flows, local runner integration, and workflow validation.
 
 7. `create-codex-workflow`
    - Use for bootstrapping a new project repo using the master `.agents` directory at `C:\Users\ghbub\OneDrive\Desktop\coding-repo\.agents`.
+
+8. `secure-coding-codeql`
+   - Use for CodeQL-driven secure coding review and prevention across Django, JavaScript, templates, APIs, webhooks, XSS, injection, deserialization, and unsafe input handling.
+
+9. `session-summaries`
+   - Use for timestamped end-of-task summaries, implementation records, validation notes, decision rationale, and future scope tracking under `.agents/session-summaries`.
 
 ## Global Workspace Rules
 
@@ -57,7 +63,7 @@ When a task clearly matches one of the domains below, load and follow that skill
 - Writing Codex prompts, Aider prompts, agent task splits, orchestration plans:
   use `prompt-and-agent-ops`
 
-- README work, architecture docs, GitHub issues, handoff notes, stakeholder summaries:
+- README work, architecture docs, GitHub issues, handoff notes, stakeholder summaries, code annotations, or docs dashboard surfacing:
   use `docs-readme-and-handoff`
 
 - Existing workflow JSON analysis, node validation, webhook plumbing:
@@ -65,3 +71,9 @@ When a task clearly matches one of the domains below, load and follow that skill
 
 - New project repo bootstrap using the master `.agents` framework:
   use `create-codex-workflow`
+
+- CodeQL findings, secure coding review, Django or JavaScript XSS prevention, injection risks, webhooks, APIs, or unsafe input handling:
+  use `secure-coding-codeql`
+
+- End-of-task summaries, saved implementation records, validation notes, decision rationale, future scope, or task handoff logs:
+  use `session-summaries`

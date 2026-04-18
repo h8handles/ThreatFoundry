@@ -4,7 +4,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 import json
-from urllib.parse import urlencode
+from urllib.parse import urlparse, urlencode
 
 from django.conf import settings
 from django.core.paginator import Paginator
@@ -34,7 +34,10 @@ SOURCE_LABEL_OVERRIDES = {
     "urlhaus": "URLhaus",
     "abuseipdb": "AbuseIPDB",
     "cisa_kev": "CISA KEV",
+    "cve": "CVE Feed",
+    "nvd": "NVD",
     "mitre_attack": "MITRE ATT&CK",
+    "threat_actor_mapping": "Threat Actor Mapping",
 }
 DEFAULT_SORT_BY = "ingested"
 DEFAULT_SORT_DIRECTION = "desc"
@@ -243,7 +246,7 @@ def build_provider_health_status(provider_availabilities: list | None = None) ->
 
         health_state = "healthy"
         if not availability.enabled:
-            health_state = "warning"
+            health_state = "disabled"
         elif not latest:
             health_state = "stale"
         elif latest["status"] == ProviderRun.Status.FAILURE:
@@ -260,6 +263,7 @@ def build_provider_health_status(provider_availabilities: list | None = None) ->
                 "enabled": availability.enabled,
                 "configured": len(availability.missing_env_vars) == 0,
                 "missing_env_vars": list(availability.missing_env_vars),
+                "note": availability.note,
                 "health_state": health_state,
                 "latest_status": latest["status"] if latest else "",
                 "last_success": last_success,
@@ -533,7 +537,7 @@ def build_ioc_blade_detail_context(value: str, value_type: str) -> dict | None:
 
             if source_context["record_id"]:
                 source_group["record_ids"].add(source_context["record_id"])
-            if source_context["reference_url"]:
+            if _is_safe_external_url(source_context["reference_url"]):
                 source_group["references"].add(source_context["reference_url"])
             source_group["external_links"] = _merge_link_entries(
                 source_group["external_links"],
@@ -656,6 +660,11 @@ def _build_source_links(
     )
 
 
+def _is_safe_external_url(value: str) -> bool:
+    parsed = urlparse(_first_nonempty_text(value))
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
 def _normalize_link_entries(value) -> list[dict]:
     if not isinstance(value, list):
         return []
@@ -666,7 +675,7 @@ def _normalize_link_entries(value) -> list[dict]:
         if not isinstance(item, dict):
             continue
         url = _first_nonempty_text(item.get("url"))
-        if not url or url in seen:
+        if not _is_safe_external_url(url) or url in seen:
             continue
         seen.add(url)
         normalized.append(
@@ -1230,7 +1239,7 @@ def _build_family_references(queryset, limit: int = 12) -> list[dict]:
             url_text = _first_nonempty_text(url)
             title_text = _first_nonempty_text(title)
             key = (url_text, title_text)
-            if not url_text or key in seen:
+            if not _is_safe_external_url(url_text) or key in seen:
                 continue
             seen.add(key)
             references.append(

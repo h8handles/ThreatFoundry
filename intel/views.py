@@ -2,6 +2,7 @@ import html
 import json
 import logging
 from pathlib import Path
+from html.parser import HTMLParser
 
 import markdown
 from django.conf import settings
@@ -41,6 +42,110 @@ WHOIS_SUPPORTED_VALUE_TYPES = {
     "ipv4",
     "ipv6",
 }
+
+DOCS_ALLOWED_TAGS = {
+    "a",
+    "blockquote",
+    "code",
+    "em",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "hr",
+    "li",
+    "ol",
+    "p",
+    "pre",
+    "strong",
+    "table",
+    "tbody",
+    "td",
+    "th",
+    "thead",
+    "tr",
+    "ul",
+}
+DOCS_ALLOWED_ATTRIBUTES = {
+    "a": {"href", "title"},
+    "code": {"class"},
+}
+DOCS_ALLOWED_URL_SCHEMES = {"", "http", "https", "mailto"}
+
+
+class DocumentationHtmlSanitizer(HTMLParser):
+    """Allow Markdown-generated structure while keeping raw docs HTML inert."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if tag not in DOCS_ALLOWED_TAGS:
+            return
+
+        rendered_attrs = self._safe_attrs(tag, attrs)
+        suffix = f" {rendered_attrs}" if rendered_attrs else ""
+        self.parts.append(f"<{tag}{suffix}>")
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if tag in DOCS_ALLOWED_TAGS and tag != "hr":
+            self.parts.append(f"</{tag}>")
+
+    def handle_startendtag(self, tag, attrs):
+        tag = tag.lower()
+        if tag not in DOCS_ALLOWED_TAGS:
+            return
+        rendered_attrs = self._safe_attrs(tag, attrs)
+        suffix = f" {rendered_attrs}" if rendered_attrs else ""
+        self.parts.append(f"<{tag}{suffix}>")
+
+    def handle_data(self, data):
+        self.parts.append(html.escape(data, quote=False))
+
+    def handle_entityref(self, name):
+        self.parts.append(html.escape(html.unescape(f"&{name};"), quote=False))
+
+    def handle_charref(self, name):
+        self.parts.append(html.escape(html.unescape(f"&#{name};"), quote=False))
+
+    def get_html(self) -> str:
+        return "".join(self.parts)
+
+    def _safe_attrs(self, tag: str, attrs) -> str:
+        allowed = DOCS_ALLOWED_ATTRIBUTES.get(tag, set())
+        safe_attrs = []
+        for name, value in attrs:
+            attr_name = str(name or "").strip().lower()
+            if attr_name not in allowed or value is None:
+                continue
+            attr_value = str(value)
+            if attr_name == "href" and not _is_safe_docs_url(attr_value):
+                continue
+            safe_attrs.append(
+                f'{attr_name}="{html.escape(attr_value, quote=True)}"'
+            )
+        return " ".join(safe_attrs)
+
+
+def _is_safe_docs_url(value: str) -> bool:
+    scheme = value.strip().split(":", 1)[0].lower() if ":" in value else ""
+    return scheme in DOCS_ALLOWED_URL_SCHEMES
+
+
+def render_safe_documentation_markdown(md_content: str) -> str:
+    raw_html = markdown.markdown(
+        md_content,
+        extensions=["tables", "fenced_code"],
+    )
+    sanitizer = DocumentationHtmlSanitizer()
+    sanitizer.feed(raw_html)
+    sanitizer.close()
+    return sanitizer.get_html()
 
 @role_required(VIEWER_GROUP)
 def dashboard_view(request):
@@ -195,10 +300,7 @@ def documentation_view(request, doc_name=None):
         log.exception("Documentation read failed.")
         raise Http404("Documentation page not found.") from exc
 
-    html_content = markdown.markdown(
-        html.escape(md_content),
-        extensions=["tables", "fenced_code"],
-    )
+    html_content = render_safe_documentation_markdown(md_content)
 
     context = {
         "doc_files": doc_files,
@@ -315,7 +417,12 @@ def generate_exec_report_view(request):
     ioc_blades = context.get("ioc_blades", [])
     recent_ioc_rows = context.get("recent_ioc_rows", [])
 
-    report_data = generate_exec_report(kpis, ioc_blades, recent_ioc_rows)
+    report_data = generate_exec_report(
+        kpis,
+        ioc_blades,
+        recent_ioc_rows,
+        malware_distribution=context.get("malware_distribution"),
+    )
 
     if request.GET.get("format") == "markdown":
         return HttpResponse(report_data["markdown"], content_type="text/markdown")

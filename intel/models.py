@@ -23,7 +23,7 @@ class IntelIOC(models.Model):
     first_seen = models.DateTimeField(null=True, blank=True)
     last_seen = models.DateTimeField(null=True, blank=True)
     reporter = models.CharField(max_length=100, blank=True)
-    reference_url = models.URLField(blank=True)
+    reference_url = models.TextField(blank=True)
     tags = models.JSONField(default=list, blank=True)
     external_references = models.JSONField(default=list, blank=True)
     likely_threat_type = models.CharField(max_length=255, blank=True)

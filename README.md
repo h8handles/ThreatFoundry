@@ -94,6 +94,11 @@ Or pull from providers:
 python manage.py import_threatfox --days 1
 python manage.py import_alienvault --days 1
 python manage.py import_urlhaus
+python manage.py refresh_intel --provider cisa_kev
+python manage.py refresh_intel --provider cve
+python manage.py refresh_intel --provider nvd
+python manage.py refresh_intel --provider mitre_attack
+python manage.py refresh_intel --provider threat_actor_mapping
 ```
 
 7. Start the app.
@@ -139,6 +144,7 @@ The app reads `.env` values using `python-dotenv` when available.
 
 Set provider switches with `<PROVIDER>_ENABLED=true|false`.
 Examples: `THREATFOX_ENABLED`, `ALIENVAULT_ENABLED`, `URLHAUS_ENABLED`, `VIRUSTOTAL_ENABLED`.
+Public vulnerability/TTP providers are also controlled by `CISA_KEV_ENABLED`, `CVE_ENABLED`, `NVD_ENABLED`, `MITRE_ATTACK_ENABLED`, and `THREAT_ACTOR_MAPPING_ENABLED`.
 
 ### Refresh Pipeline
 WIP linux feature
@@ -149,6 +155,8 @@ WIP linux feature
 - `INTEL_REFRESH_LOCK_FILE` (default `BASE_DIR/var/run/refresh_intel.lock`)
 - `INTEL_REFRESH_VIRUSTOTAL_LIMIT` (default `25`)
 - `INTEL_REFRESH_VIRUSTOTAL_THROTTLE_SECONDS` (default `16`)
+- `INTEL_REFRESH_CVE_FEED_LIMIT` (default `50`)
+- `INTEL_REFRESH_THREAT_ACTOR_MAPPING_LIMIT` (default `500`)
 
 ### Analyst Assistant
 

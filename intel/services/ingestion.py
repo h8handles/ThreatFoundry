@@ -30,12 +30,24 @@ class IngestionResult:
 Normalizer = Callable[[dict], dict | None]
 
 
+def _text_value(value) -> str:
+    """Normalize scalar or list feed values before text-only operations."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return " ".join(text for item in value if (text := _text_value(item).strip()))
+    return str(value)
+
+
 def _parse_datetime(value: str | None):
     """Convert ThreatFox datetime strings into timezone-aware Python datetimes."""
-    if not value:
+    text = _text_value(value).strip()
+    if not text:
         return None
 
-    parsed = parse_datetime(value.replace(" ", "T"))
+    parsed = parse_datetime(text.replace(" ", "T"))
     if parsed is None:
         return None
     if timezone.is_naive(parsed):
@@ -63,7 +75,7 @@ def _coerce_int(value):
 def _first_nonempty(*values):
     """Return the first value that becomes non-empty once converted to text."""
     for value in values:
-        text = str(value or "").strip()
+        text = _text_value(value).strip()
         if text:
             return text
     return ""
@@ -72,6 +84,27 @@ def _first_nonempty(*values):
 def _stable_source_record_id(source_name: str, value_type: str, value: str) -> str:
     """Create a repeatable fallback key when the source does not expose one."""
     return sha256(f"{source_name}:{value_type}:{value}".encode()).hexdigest()
+
+
+def _field_length_diagnostics(normalized: dict) -> list[dict]:
+    diagnostics: list[dict] = []
+    for field in IntelIOC._meta.fields:
+        max_length = getattr(field, "max_length", None)
+        if not max_length or field.name not in normalized:
+            continue
+        value = normalized.get(field.name)
+        if value in (None, ""):
+            continue
+        value_length = len(_text_value(value))
+        if value_length > max_length:
+            diagnostics.append(
+                {
+                    "field": field.name,
+                    "max_length": max_length,
+                    "value_length": value_length,
+                }
+            )
+    return diagnostics
 
 
 def _extract_pulses(record: dict) -> list[dict]:
@@ -378,23 +411,44 @@ def upsert_iocs(
                 result.skipped += 1
                 continue
 
-            if dry_run:
-                created = not IntelIOC.objects.filter(
-                    source_name=normalized["source_name"],
-                    source_record_id=normalized["source_record_id"],
-                ).exists()
-            else:
-                with transaction.atomic():
-                    score_fields = build_score_fields(
-                        derived_confidence_level=normalized.get("derived_confidence_level"),
-                        confidence_level=normalized.get("confidence_level"),
-                    )
-                    normalized_with_score = {**normalized, **score_fields}
-                    _, created = IntelIOC.objects.update_or_create(
+            try:
+                if dry_run:
+                    created = not IntelIOC.objects.filter(
                         source_name=normalized["source_name"],
                         source_record_id=normalized["source_record_id"],
-                        defaults=normalized_with_score,
-                    )
+                    ).exists()
+                else:
+                    with transaction.atomic():
+                        score_fields = build_score_fields(
+                            derived_confidence_level=normalized.get("derived_confidence_level"),
+                            confidence_level=normalized.get("confidence_level"),
+                        )
+                        normalized_with_score = {**normalized, **score_fields}
+                        _, created = IntelIOC.objects.update_or_create(
+                            source_name=normalized["source_name"],
+                            source_record_id=normalized["source_record_id"],
+                            defaults=normalized_with_score,
+                        )
+            except Exception as exc:
+                _log_ingestion_event(
+                    event="ingestion_record_upsert_failed",
+                    provider=provider_name or normalized.get("source_name", ""),
+                    status="failure",
+                    started_at=started_at,
+                    records_fetched=len(records),
+                    records_created=result.created,
+                    records_updated=result.updated,
+                    records_skipped=result.skipped,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                    extra={
+                        "source_name": normalized.get("source_name", ""),
+                        "source_record_id": normalized.get("source_record_id", ""),
+                        "value": normalized.get("value", ""),
+                        "field_length_diagnostics": _field_length_diagnostics(normalized),
+                    },
+                )
+                raise
             if created:
                 result.created += 1
             else:
@@ -440,6 +494,7 @@ def _log_ingestion_event(
     records_skipped: int,
     error_type: str = "",
     error_message: str = "",
+    extra: dict | None = None,
 ) -> None:
     now = timezone.now()
     payload = {
@@ -455,4 +510,6 @@ def _log_ingestion_event(
         "records_updated": records_updated,
         "records_skipped": records_skipped,
     }
+    if extra:
+        payload.update(extra)
     logger.info(json.dumps(payload, default=str, sort_keys=True))

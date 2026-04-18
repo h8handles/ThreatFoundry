@@ -7,6 +7,21 @@ Generated: {{ report.generated_at }}
 - Total IOCs: {{ report.total_iocs }}
 - Average Confidence: {% if report.average_confidence is not None %}{{ report.average_confidence|floatformat:1 }}{% else %}N/A{% endif %}
 
+## Malware Family Attribution
+
+{{ report.malware_attribution.summary }}
+
+{% if report.malware_attribution.has_attribution %}
+- Dominant Malware Family: {{ report.malware_attribution.dominant_family }} ({{ report.malware_attribution.dominant_count }})
+- Total Attributed Records: {{ report.malware_attribution.total_attributed }}
+
+| Family | Records |
+|---|---:|
+{% for family in report.malware_attribution.families_observed %}
+| {{ family.label }} | {{ family.count }} |
+{% endfor %}
+{% endif %}
+
 ## Top Indicators
 
 {% if report.top_severity_indicators %}

@@ -90,6 +90,11 @@ Compatibility fallbacks:
 - Examples:
   - `THREATFOX_ENABLED=true`
   - `VIRUSTOTAL_ENABLED=false`
+  - `CISA_KEV_ENABLED=true`
+  - `CVE_ENABLED=true`
+  - `NVD_ENABLED=true`
+  - `MITRE_ATTACK_ENABLED=true`
+  - `THREAT_ACTOR_MAPPING_ENABLED=true`
 
 ### 2.4 Refresh Pipeline Controls
 
@@ -98,6 +103,8 @@ Compatibility fallbacks:
 - `INTEL_REFRESH_TIMEOUT`
 - `INTEL_REFRESH_VIRUSTOTAL_LIMIT`
 - `INTEL_REFRESH_VIRUSTOTAL_THROTTLE_SECONDS`
+- `INTEL_REFRESH_CVE_FEED_LIMIT`
+- `INTEL_REFRESH_THREAT_ACTOR_MAPPING_LIMIT`
 
 ### 2.5 Database
 
@@ -133,6 +140,24 @@ python manage.py import_alienvault --days 1
 ```bash
 python manage.py import_urlhaus --timeout 30
 ```
+
+### Public Vulnerability And TTP Providers
+
+These providers run through the orchestrated refresh flow and record normal `ProviderRunDetail` history for the dashboard cards.
+
+```bash
+python manage.py refresh_intel --provider cisa_kev
+python manage.py refresh_intel --provider cve
+python manage.py refresh_intel --provider nvd
+python manage.py refresh_intel --provider mitre_attack
+python manage.py refresh_intel --provider threat_actor_mapping
+```
+
+Behavior notes:
+
+- CISA KEV, CVE List V5, NVD, and MITRE ATT&CK are public feeds.
+- `NVD_API_KEY` is optional; without it, NVD runs under the public API quota.
+- Threat Actor Mapping is internal correlation over local IOC/enrichment evidence. It does not call a live actor-attribution feed.
 
 ## 3.2 VirusTotal Enrichment
 
