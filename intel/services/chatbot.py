@@ -4,6 +4,7 @@ import ipaddress
 import logging
 import re
 import socket
+import uuid
 from collections import Counter
 from collections.abc import Mapping
 from typing import Any
@@ -28,6 +29,8 @@ from intel.services.dashboard import (
 SUPPORTED_SUMMARY_MODES = ("auto", "analyst", "executive", "technical", "brief")
 DEFAULT_SUMMARY_MODE = "auto"
 MAX_LOOKUP_RESULTS = 5
+MAX_CONVERSATION_MESSAGES = 8
+MAX_CONVERSATION_MESSAGE_CHARS = 900
 URL_PATTERN = re.compile(r"https?://[^\s)]+", re.IGNORECASE)
 IP_PATTERN = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 HASH_PATTERN = re.compile(r"\b[a-fA-F0-9]{32}\b|\b[a-fA-F0-9]{40}\b|\b[a-fA-F0-9]{64}\b")
@@ -35,11 +38,35 @@ EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNO
 DOMAIN_PATTERN = re.compile(r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b")
 SYSTEM_PROMPT = (
     "You are a SOC and threat-intelligence analyst assistant. Treat the user as a peer analyst. "
-    "Use supplied IOC database context as source of truth. Answer broad and narrow IOC questions, "
-    "including specific IOC lookups, source comparisons, confidence, trends, suspicious clusters, "
-    "enrichment, prioritization, and executive or technical summaries. Do not pretend only one "
-    "output mode is allowed. State uncertainty only when data is genuinely missing."
+    "Use supplied ThreatFoundry IOC context as source of truth, but adapt the answer to the actual "
+    "question instead of forcing every response into the same template. Support specific IOC lookups, "
+    "malware-family and infrastructure pivots, trend reads, correlation, summaries, prioritization, "
+    "hunt ideas, and uncertainty-aware investigation guidance. Be direct about what the data supports, "
+    "what is missing, and which next step would most reduce uncertainty."
 )
+N8N_RESPONSE_CONTRACT = {
+    "answer": "Required natural-language answer. n8n may also return summary.",
+    "reasoning_summary": "Optional short explanation of how the answer was derived.",
+    "confidence": "Optional confidence label or score.",
+    "key_findings": "Optional list of supporting findings.",
+    "recommended_actions": "Optional list of next investigative actions.",
+    "uncertainty": "Optional list of limits or unknowns.",
+    "supporting_records": "Optional list of cited IOC records.",
+    "cited_iocs": "Optional alternate field for cited IOC records.",
+}
+QUESTION_RESPONSE_GUIDANCE = {
+    "ioc_lookup": "Answer the observable directly, cite matching records, and call out missing enrichment.",
+    "malware_family": "Explain the visible family or cluster pattern, then suggest useful pivots.",
+    "source_comparison": "Compare sources by volume, confidence, and operational usefulness.",
+    "trend": "Emphasize time slices and source changes. Avoid forcing IOC tables when the question is trend-level.",
+    "correlation": "Focus on shared family, source, tags, infrastructure, and stored correlation reasons.",
+    "summary": "Summarize scope and risk. Keep supporting detail concise.",
+    "prioritization": "Rank what to work first and explain why those leads reduce risk or uncertainty.",
+    "hunt": "Convert evidence into a hunting hypothesis and concrete pivots.",
+    "uncertainty": "Separate what is supported from what is missing or weakly evidenced.",
+    "enrichment": "Discuss available provider evidence and enrichment gaps.",
+    "open_analysis": "Answer naturally using the most relevant context; do not force a fixed section template.",
+}
 log = logging.getLogger(__name__)
 
 
@@ -50,6 +77,7 @@ class ChatbotServiceError(RuntimeError):
 def build_chat_bootstrap(filters: DashboardFilters) -> dict[str, Any]:
     return {
         "api_url": reverse("intel:analyst_chat_api"),
+        "popout_url": f"{reverse('intel:analyst_chat')}?popout=1",
         "default_mode": DEFAULT_SUMMARY_MODE,
         "supported_modes": list(SUPPORTED_SUMMARY_MODES),
         "filters": _serialize_filters(filters),
@@ -83,7 +111,13 @@ def build_scope_badges(filters: DashboardFilters) -> list[dict[str, str]]:
     return badges
 
 
-def build_chat_response(*, user_prompt: str, summary_mode: str | None, filters_payload: Any) -> dict[str, Any]:
+def build_chat_response(
+    *,
+    user_prompt: str,
+    summary_mode: str | None,
+    filters_payload: Any,
+    conversation_payload: Any = None,
+) -> dict[str, Any]:
     prompt = str(user_prompt or "").strip()
     if not prompt:
         raise ChatbotServiceError("Prompt is required.")
@@ -91,11 +125,18 @@ def build_chat_response(*, user_prompt: str, summary_mode: str | None, filters_p
     filters = parse_dashboard_filters(filters_payload if isinstance(filters_payload, Mapping) else {})
     resolved_mode = resolve_summary_mode(summary_mode, prompt)
     context = build_chat_context(filters, prompt)
+    conversation_context = normalize_conversation_context(conversation_payload)
+    response_guidance = build_response_guidance(context.get("query_focus", {}), resolved_mode)
     provider_payload = {
+        "request_id": uuid.uuid4().hex,
         "user_query": prompt,
+        "analyst_question": prompt,
         "summary_mode": resolved_mode,
-        "system_prompt": SYSTEM_PROMPT,
+        "system_instructions": build_system_instructions(resolved_mode, response_guidance),
+        "system_prompt": build_system_instructions(resolved_mode, response_guidance),
+        "response_guidance": response_guidance,
         "dashboard_filters": _serialize_filters(filters),
+        "conversation_context": conversation_context,
         "ioc_context": context,
     }
 
@@ -104,18 +145,18 @@ def build_chat_response(*, user_prompt: str, summary_mode: str | None, filters_p
     if not answer:
         raise ChatbotServiceError("The chat provider returned an empty response.")
 
-    supporting_records = _normalize_record_list(provider_response.get("supporting_records"))
-    if not supporting_records:
-        if context["lookup"]["found_any"]:
-            supporting_records = context["lookup"]["results"][0]["top_records"]
-        else:
-            supporting_records = context["top_suspicious"][:5]
+    if "supporting_records" in provider_response:
+        supporting_records = _normalize_record_list(provider_response.get("supporting_records"))
+    else:
+        supporting_records = default_supporting_records_for_response(context)
 
     return {
         "summary_mode": resolved_mode,
         "answer": answer,
         "provider": str(provider_response.get("provider") or "local-database"),
         "source_of_truth": str(provider_response.get("source_of_truth") or "database"),
+        "reasoning_summary": str(provider_response.get("reasoning_summary") or "").strip(),
+        "confidence": provider_response.get("confidence") or "",
         "key_findings": _normalize_text_list(provider_response.get("key_findings")),
         "recommended_actions": _normalize_text_list(provider_response.get("recommended_actions")),
         "uncertainty": _normalize_text_list(provider_response.get("uncertainty")),
@@ -132,6 +173,70 @@ def build_chat_response(*, user_prompt: str, summary_mode: str | None, filters_p
         "context_meta": context["metrics"],
         "available_modes": ["analyst", "executive", "technical", "brief"],
     }
+
+
+def build_system_instructions(summary_mode: str, response_guidance: Mapping[str, Any] | None = None) -> str:
+    mode_guidance = {
+        "analyst": "Use the structure that best fits the question. Lead with the answer, then add evidence or next steps only when useful.",
+        "technical": "Favor precise IOC fields, source names, confidence, enrichment, and pivot details. Avoid executive gloss.",
+        "executive": "Keep the answer business-readable and concise. Emphasize risk, impact, confidence, and decisions.",
+        "brief": "Answer in a short paragraph or a few bullets. Do not include sections unless they clarify the answer.",
+    }.get(summary_mode, "Adapt the format to the analyst question.")
+    guidance_text = ""
+    if isinstance(response_guidance, Mapping):
+        guidance_text = " ".join(str(item) for item in response_guidance.get("instructions", []) if str(item).strip())
+    return " ".join(part for part in (SYSTEM_PROMPT, mode_guidance, guidance_text) if part)
+
+
+def build_response_guidance(query_focus: Mapping[str, Any], summary_mode: str) -> dict[str, Any]:
+    intents = list(query_focus.get("intents") or ["open_analysis"]) if isinstance(query_focus, Mapping) else ["open_analysis"]
+    instructions = [QUESTION_RESPONSE_GUIDANCE.get(intent, QUESTION_RESPONSE_GUIDANCE["open_analysis"]) for intent in intents]
+    if summary_mode == "brief":
+        instructions.append("Keep optional fields sparse; do not add supporting records unless they directly answer the question.")
+    elif summary_mode == "executive":
+        instructions.append("Prefer decision-ready risk language over raw IOC enumeration.")
+    return {
+        "intents": intents,
+        "mode": summary_mode,
+        "instructions": _dedupe_text(instructions),
+        "allow_sparse_optional_fields": True,
+    }
+
+
+def normalize_conversation_context(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+
+    messages = []
+    for item in value[-MAX_CONVERSATION_MESSAGES:]:
+        if not isinstance(item, Mapping):
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        if role not in {"user", "assistant"}:
+            continue
+        content = str(item.get("content") or item.get("answer") or "").strip()
+        if not content:
+            continue
+        messages.append(
+            {
+                "role": role,
+                "content": content[:MAX_CONVERSATION_MESSAGE_CHARS],
+            }
+        )
+    return messages
+
+
+def default_supporting_records_for_response(context: Mapping[str, Any]) -> list[dict[str, Any]]:
+    lookup = context.get("lookup", {}) if isinstance(context, Mapping) else {}
+    if isinstance(lookup, Mapping) and lookup.get("found_any"):
+        first_result = next((item for item in lookup.get("results", []) if item.get("matched_count")), {})
+        return _normalize_record_list(first_result.get("top_records"))
+
+    query_focus = context.get("query_focus", {}) if isinstance(context, Mapping) else {}
+    intents = set(query_focus.get("intents") or []) if isinstance(query_focus, Mapping) else set()
+    if _should_include_record_support(intents):
+        return _normalize_record_list(context.get("focused_records"))[:5]
+    return []
 
 
 def resolve_summary_mode(explicit_mode: str | None, user_prompt: str) -> str:
@@ -207,8 +312,18 @@ def build_chat_context(filters: DashboardFilters, user_prompt: str) -> dict[str,
         for provider in record["enrichment_providers"]:
             enrichment_counter[provider] += 1
 
+    query_focus = classify_query_focus(user_prompt)
+    lookup = build_lookup_context(scoped_queryset, user_prompt)
+    top_suspicious = sorted(normalized_records, key=lambda item: (-item["suspicious_score"], item["value"]))[:5]
+    focused_records = select_focused_records(
+        normalized_records=normalized_records,
+        lookup=lookup,
+        query_focus=query_focus,
+    )
+
     return {
         "scope": _serialize_filters(filters),
+        "query_focus": query_focus,
         "metrics": {
             "total_iocs": metrics["total_iocs"],
             "high_confidence_iocs": metrics["high_confidence_iocs"],
@@ -246,10 +361,68 @@ def build_chat_context(filters: DashboardFilters, user_prompt: str) -> dict[str,
             "enriched_records": sum(1 for item in normalized_records if item["enrichment_count"]),
             "providers": [{"provider": provider, "count": count} for provider, count in enrichment_counter.most_common(6)],
         },
-        "lookup": build_lookup_context(scoped_queryset, user_prompt),
-        "top_suspicious": sorted(normalized_records, key=lambda item: (-item["suspicious_score"], item["value"]))[:5],
+        "lookup": lookup,
+        "focused_records": focused_records,
+        "top_suspicious": top_suspicious,
         "noisy_records": [item for item in normalized_records if item["confidence_level"] is None or item["confidence_level"] < 40][:5],
     }
+
+
+def classify_query_focus(user_prompt: str) -> dict[str, Any]:
+    lowered = str(user_prompt or "").lower()
+    focus_terms = {
+        "ioc_lookup": ("what do we know about", "lookup", "ioc", "indicator", "observable"),
+        "malware_family": ("malware", "family", "cluster", "campaign"),
+        "source_comparison": ("source", "sources", "contributor", "contributors", "feed", "provider"),
+        "trend": ("trend", "recent", "latest", "over time", "spike", "change"),
+        "correlation": ("correlate", "correlation", "related", "overlap", "same infrastructure", "same actor"),
+        "summary": ("summarize", "summary", "brief", "executive", "overview"),
+        "prioritization": ("prioritize", "first", "triage", "highest risk", "most suspicious"),
+        "hunt": ("hunt", "hunting", "hypothesis", "pivot", "investigate next"),
+        "uncertainty": ("uncertain", "confidence", "how sure", "missing", "unknown", "gap"),
+        "enrichment": ("enrich", "enrichment", "reputation", "virustotal", "whois", "dns"),
+    }
+    matched = [name for name, terms in focus_terms.items() if any(term in lowered for term in terms)]
+    return {
+        "intents": matched or ["open_analysis"],
+        "requires_specific_ioc": any(term in lowered for term in ("what do we know about", "lookup", "indicator", "observable")),
+        "prefers_actions": any(term in lowered for term in ("what should", "next", "prioritize", "triage", "hunt", "investigate")),
+    }
+
+
+def select_focused_records(
+    *,
+    normalized_records: list[dict[str, Any]],
+    lookup: Mapping[str, Any],
+    query_focus: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    seen_ids: set[Any] = set()
+
+    for result in lookup.get("results", []) if isinstance(lookup, Mapping) else []:
+        if not isinstance(result, Mapping):
+            continue
+        for record in _normalize_record_list(result.get("top_records")):
+            if record.get("id") not in seen_ids:
+                records.append(record)
+                seen_ids.add(record.get("id"))
+
+    intents = set(query_focus.get("intents") or []) if isinstance(query_focus, Mapping) else set()
+    candidate_records = list(normalized_records)
+    if "enrichment" in intents:
+        candidate_records = [record for record in candidate_records if record.get("enrichment_count")] or candidate_records
+    if "uncertainty" in intents:
+        candidate_records = sorted(candidate_records, key=lambda item: (item.get("confidence_level") is not None, item.get("confidence_level") or 0))
+    else:
+        candidate_records = sorted(candidate_records, key=lambda item: (-item.get("suspicious_score", 0), item.get("value", "")))
+
+    for record in candidate_records:
+        if len(records) >= 8:
+            break
+        if record.get("id") not in seen_ids:
+            records.append(record)
+            seen_ids.add(record.get("id"))
+    return records
 
 
 def build_lookup_context(queryset, user_prompt: str) -> dict[str, Any]:
@@ -317,8 +490,10 @@ def normalize_ioc_record(record: Any) -> dict[str, Any]:
         "timeline_at": _to_iso(latest_observed),
         "reference_url": str(getattr(record, "reference_url", "") or ""),
         "tags": _normalize_text_list(getattr(record, "tags", [])),
+        "correlation_reasons": _normalize_text_list(getattr(record, "correlation_reasons", [])),
         "enrichment_providers": enrichment_providers,
         "enrichment_count": len(enrichment_providers),
+        "calculated_score": getattr(record, "calculated_score", None),
         "suspicious_score": _calculate_suspicion_score(getattr(record, "confidence_level", None), latest_observed, len(enrichment_providers)),
     }
 
@@ -333,7 +508,8 @@ def _call_chat_provider(payload: dict[str, Any]) -> dict[str, Any]:
     if provider_mode in {"n8n", "hybrid"} and webhook_url:
         try:
             return _call_n8n(payload)
-        except ChatbotServiceError:
+        except ChatbotServiceError as exc:
+            log.warning("Analyst chat n8n provider failed; provider_mode=%s error=%s", provider_mode, exc)
             if provider_mode == "n8n":
                 raise
 
@@ -364,7 +540,7 @@ def _call_n8n(payload: dict[str, Any]) -> dict[str, Any]:
     except ValueError as exc:
         raise ChatbotServiceError("n8n response was not valid JSON.") from exc
 
-    root = data if isinstance(data, Mapping) else {}
+    root = _unwrap_n8n_response(data)
     payload_map = root.get("response") if isinstance(root.get("response"), Mapping) else root
     answer = str(payload_map.get("answer") or payload_map.get("summary") or root.get("answer") or "").strip()
     if not answer:
@@ -372,13 +548,39 @@ def _call_n8n(payload: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "answer": answer,
+        "reasoning_summary": str(payload_map.get("reasoning_summary") or payload_map.get("reasoning") or root.get("reasoning_summary") or "").strip(),
+        "confidence": payload_map.get("confidence") or root.get("confidence") or "",
         "key_findings": _normalize_text_list(payload_map.get("key_findings") or root.get("key_findings")),
-        "recommended_actions": _normalize_text_list(payload_map.get("recommended_actions") or root.get("recommended_actions")),
+        "recommended_actions": _normalize_text_list(
+            payload_map.get("recommended_actions")
+            or payload_map.get("suggested_next_actions")
+            or payload_map.get("next_actions")
+            or root.get("recommended_actions")
+        ),
         "uncertainty": _normalize_text_list(payload_map.get("uncertainty") or root.get("uncertainty")),
-        "supporting_records": _normalize_record_list(payload_map.get("supporting_records") or root.get("supporting_records")),
+        "supporting_records": _normalize_record_list(
+            payload_map.get("supporting_records")
+            or payload_map.get("cited_iocs")
+            or payload_map.get("citations")
+            or root.get("supporting_records")
+        ),
         "provider": str(payload_map.get("provider") or root.get("provider") or "n8n"),
         "source_of_truth": str(payload_map.get("source_of_truth") or root.get("source_of_truth") or "database"),
     }
+
+
+def _unwrap_n8n_response(data: Any) -> dict[str, Any]:
+    if isinstance(data, list) and data:
+        first = data[0]
+        if isinstance(first, Mapping):
+            if isinstance(first.get("json"), Mapping):
+                return dict(first["json"])
+            return dict(first)
+    if isinstance(data, Mapping):
+        if isinstance(data.get("json"), Mapping):
+            return dict(data["json"])
+        return dict(data)
+    return {}
 
 
 def _build_local_database_answer(payload: dict[str, Any]) -> dict[str, Any]:
@@ -388,17 +590,23 @@ def _build_local_database_answer(payload: dict[str, Any]) -> dict[str, Any]:
     context = payload.get("ioc_context") if isinstance(payload.get("ioc_context"), Mapping) else {}
     metrics = context.get("metrics", {})
     lookup = context.get("lookup", {})
+    query_focus = context.get("query_focus", {})
     source_breakdown = context.get("source_breakdown", [])
     cluster_breakdown = context.get("cluster_breakdown", [])
     threat_breakdown = context.get("threat_breakdown", [])
+    confidence_overview = context.get("confidence_overview", {})
     top_suspicious = _normalize_record_list(context.get("top_suspicious"))
+    focused_records = _normalize_record_list(context.get("focused_records")) or top_suspicious
     noisy_records = _normalize_record_list(context.get("noisy_records"))
     daily_counts = context.get("daily_counts", [])
     enrichment_summary = context.get("enrichment_summary", {})
+    intents = set(query_focus.get("intents") or []) if isinstance(query_focus, Mapping) else set()
 
     if not metrics.get("total_iocs"):
         return {
             "answer": "There are no IOC records in the current scope, so there is nothing to analyze yet.",
+            "reasoning_summary": "No scoped IOC records were available to analyze.",
+            "confidence": "low",
             "key_findings": ["The scoped IOC count is 0."],
             "recommended_actions": ["Clear filters or ingest IOC data before using analyst chat."],
             "uncertainty": [],
@@ -420,7 +628,15 @@ def _build_local_database_answer(payload: dict[str, Any]) -> dict[str, Any]:
             if primary.get("enrichment_count", 0) == 0:
                 uncertainty.append("No stored enrichment payloads are attached to the top match.")
             return {
-                "answer": _render_answer(mode, f"{result['target']} is present in the IOC database and should be treated as an active lead.", findings, uncertainty),
+                "answer": _render_answer(
+                    mode,
+                    f"{result['target']} is present in the IOC database and should be treated as an active lead.",
+                    findings,
+                    uncertainty,
+                    question_intents=intents,
+                ),
+                "reasoning_summary": "The local provider found an exact target match and summarized the strongest matching record.",
+                "confidence": _local_confidence_label(metrics, result["top_records"]),
                 "key_findings": findings,
                 "recommended_actions": [
                     "Open the IOC detail page and review source references for the matched records.",
@@ -438,7 +654,15 @@ def _build_local_database_answer(payload: dict[str, Any]) -> dict[str, Any]:
             f"Current scoped database size is {metrics.get('total_iocs', 0)} records.",
         ]
         return {
-            "answer": _render_answer(mode, f"No exact IOC match was found for {target_list} in the current scope.", findings, []),
+            "answer": _render_answer(
+                mode,
+                f"No exact IOC match was found for {target_list} in the current scope.",
+                findings,
+                [],
+                question_intents=intents,
+            ),
+            "reasoning_summary": "The local provider searched IOC value, source record ID, reference URL, tags, and raw payload text.",
+            "confidence": "medium",
             "key_findings": findings,
             "recommended_actions": ["Clear filters if you want to search the full IOC set.", "Retry the exact observable format if you expected a match."],
             "uncertainty": [],
@@ -447,11 +671,12 @@ def _build_local_database_answer(payload: dict[str, Any]) -> dict[str, Any]:
             "source_of_truth": "database",
         }
 
-    if "noise" in lowered or "noisy" in lowered:
+    if "noise" in lowered or "noisy" in lowered or ("uncertainty" in intents and "hunt" not in intents and "prioritization" not in intents):
         findings = [f"Low-confidence or unscored records account for {metrics.get('low_confidence_iocs', 0)} scoped records."]
         if noisy_records:
             findings.append(f"Example noisy IOC is {noisy_records[0]['value']} from {noisy_records[0]['source_name']}.")
-        answer = _render_answer(mode, "The noisiest part of this scope is the low-confidence or unscored IOC slice.", findings, [])
+        uncertainty = ["Low or missing confidence limits prioritization quality until those records are enriched or cross-sourced."]
+        answer = _render_answer(mode, "The noisiest part of this scope is the low-confidence or unscored IOC slice.", findings, uncertainty, question_intents=intents)
         supporting = noisy_records[:5]
     elif any(term in lowered for term in ("source", "sources", "contributor", "contributors", "feed", "provider")):
         top_source = source_breakdown[0] if source_breakdown else {}
@@ -460,9 +685,9 @@ def _build_local_database_answer(payload: dict[str, Any]) -> dict[str, Any]:
             f"{top_source.get('source', UNKNOWN_LABEL)} contributes the most records in scope ({top_source.get('count', 0)}).",
             f"{riskiest.get('source', UNKNOWN_LABEL)} has the strongest high-confidence signal ({riskiest.get('high_confidence_count', 0)} high-confidence records).",
         ]
-        answer = _render_answer(mode, f"{riskiest.get('source', UNKNOWN_LABEL)} is the source I would scrutinize first.", findings, [])
-        supporting = top_suspicious[:5]
-    elif any(term in lowered for term in ("cluster", "related", "family", "campaign")):
+        answer = _render_answer(mode, f"{riskiest.get('source', UNKNOWN_LABEL)} is the source I would scrutinize first.", findings, [], question_intents=intents)
+        supporting = focused_records[:5] if _should_include_record_support(intents) else []
+    elif any(term in lowered for term in ("cluster", "related", "family", "campaign", "overlap", "correlat")):
         cluster = cluster_breakdown[0] if cluster_breakdown else {}
         threat = threat_breakdown[0] if threat_breakdown else {}
         findings = []
@@ -470,8 +695,10 @@ def _build_local_database_answer(payload: dict[str, Any]) -> dict[str, Any]:
             findings.append(f"{cluster.get('cluster')} is the dominant visible cluster with {cluster.get('count', 0)} records.")
         if threat:
             findings.append(f"{threat.get('threat_type')} is the dominant threat pattern with {threat.get('count', 0)} records.")
-        answer = _render_answer(mode, "The current scope shows repeatable clustering rather than isolated one-off indicators.", findings, [])
-        supporting = top_suspicious[:5]
+        if any(record.get("correlation_reasons") for record in focused_records):
+            findings.append("Some focused records include stored correlation reasons that can support pivoting.")
+        answer = _render_answer(mode, "The current scope shows repeatable clustering rather than isolated one-off indicators.", findings, [], question_intents=intents)
+        supporting = focused_records[:5] if _should_include_record_support(intents) else []
     elif any(term in lowered for term in ("enrich", "enrichment", "virustotal", "reputation", "context")):
         providers = enrichment_summary.get("providers", [])
         findings = [f"{enrichment_summary.get('enriched_records', 0)} visible records have enrichment payloads attached."]
@@ -480,8 +707,14 @@ def _build_local_database_answer(payload: dict[str, Any]) -> dict[str, Any]:
         uncertainty = []
         if not enrichment_summary.get("enriched_records"):
             uncertainty.append("There are no stored enrichment payloads in the current scope.")
-        answer = _render_answer(mode, "Stored enrichment is available for part of the current IOC scope." if enrichment_summary.get("enriched_records") else "There is no stored enrichment in the current IOC scope.", findings, uncertainty)
-        supporting = [record for record in top_suspicious if record.get("enrichment_count")][:5]
+        answer = _render_answer(
+            mode,
+            "Stored enrichment is available for part of the current IOC scope." if enrichment_summary.get("enriched_records") else "There is no stored enrichment in the current IOC scope.",
+            findings,
+            uncertainty,
+            question_intents=intents,
+        )
+        supporting = [record for record in focused_records if record.get("enrichment_count")][:5]
     elif any(term in lowered for term in ("trend", "trends", "recent", "latest", "over time")):
         latest_slice = daily_counts[-1] if daily_counts else {}
         top_source = source_breakdown[0] if source_breakdown else {}
@@ -493,26 +726,38 @@ def _build_local_database_answer(payload: dict[str, Any]) -> dict[str, Any]:
         uncertainty = []
         if len(daily_counts) < 2:
             uncertainty.append("Time-series depth is limited, so this is a current-state read rather than a robust historical trend.")
-        answer = _render_answer(mode, "Current IOC activity is concentrated around the latest visible slice of data.", findings, uncertainty)
+        answer = _render_answer(mode, "Current IOC activity is concentrated around the latest visible slice of data.", findings, uncertainty, question_intents=intents)
         supporting = []
+    elif any(term in lowered for term in ("hunt", "hunting", "hypothesis", "pivot")):
+        findings = [
+            f"Start with {focused_records[0]['value']} from {focused_records[0]['source_name']}." if focused_records else "No focused IOC lead is available in the current scope.",
+            f"High-confidence records available for hunting pivots: {metrics.get('high_confidence_iocs', 0)}.",
+        ]
+        if cluster_breakdown:
+            findings.append(f"Use {cluster_breakdown[0].get('cluster')} as the first malware-family pivot.")
+        answer = _render_answer(mode, "A practical hunt should begin with the highest-confidence IOC, then pivot through shared source, family, tags, and enrichment.", findings, [], question_intents=intents)
+        supporting = focused_records[:5] if _should_include_record_support(intents) else []
     else:
-        top_record = top_suspicious[0] if top_suspicious else {}
+        top_record = focused_records[0] if focused_records else {}
         findings = [
             f"The current scope contains {metrics.get('total_iocs', 0)} IOC records across {metrics.get('source_count', 0)} sources.",
             f"High-confidence records in scope: {metrics.get('high_confidence_iocs', 0)}.",
         ]
+        if confidence_overview:
+            findings.append(
+                f"Confidence spread is high={confidence_overview.get('high', 0)}, medium={confidence_overview.get('medium', 0)}, low={confidence_overview.get('low', 0)}, unknown={confidence_overview.get('unknown', 0)}."
+            )
         if top_record:
             findings.append(f"Strongest visible IOC lead is {top_record['value']} from {top_record['source_name']}.")
-        answer = _render_answer(mode, "The current IOC scope has enough signal to answer broad analyst questions directly from the database.", findings, [])
-        supporting = top_suspicious[:5]
+        answer = _render_answer(mode, _default_open_answer_headline(query, intents), findings, [], question_intents=intents)
+        supporting = focused_records[:5] if _should_include_record_support(intents) else []
 
     return {
         "answer": answer,
+        "reasoning_summary": "Local fallback classified the analyst question, selected matching IOC context, and summarized database-backed evidence.",
+        "confidence": _local_confidence_label(metrics, supporting),
         "key_findings": findings,
-        "recommended_actions": [
-            "Ask for a specific IOC, source comparison, cluster review, or prioritization question to narrow the answer.",
-            "Use the supporting records as the first operational leads.",
-        ],
+        "recommended_actions": _recommended_actions_for_intents(intents),
         "uncertainty": uncertainty if "uncertainty" in locals() else [],
         "supporting_records": supporting,
         "provider": "local-database",
@@ -541,7 +786,81 @@ def _lookup_matches(queryset, target: dict[str, str]) -> list[Any]:
     )
 
 
-def _render_answer(mode: str, headline: str, findings: list[str], uncertainty: list[str]) -> str:
+def _default_open_answer_headline(query: str, intents: set[str]) -> str:
+    if "prioritization" in intents:
+        return "Prioritize the strongest visible IOC leads first, then validate whether they share source, family, or enrichment evidence."
+    if "summary" in intents:
+        return "The current IOC scope is suitable for a concise situational summary backed by source and confidence distribution."
+    if query.endswith("?"):
+        return "Based on the current IOC scope, the strongest answer is driven by confidence, recency, source concentration, and enrichment coverage."
+    return "The current IOC scope has enough signal to support broad analyst follow-up from the database."
+
+
+def _recommended_actions_for_intents(intents: set[str]) -> list[str]:
+    if "hunt" in intents:
+        return [
+            "Pivot from the highest-confidence IOC into shared malware family, source, tags, and enrichment provider evidence.",
+            "Promote any repeated infrastructure or source overlap into a hunt hypothesis before broadening the scope.",
+        ]
+    if "uncertainty" in intents:
+        return [
+            "Enrich low-confidence or unscored records before making a priority call.",
+            "Compare suspicious records across at least one independent source before escalation.",
+        ]
+    if "trend" in intents:
+        return [
+            "Review the newest daily slice against source and malware-family concentration.",
+            "Broaden the date filter if you need a historical trend instead of a current-state read.",
+        ]
+    if "summary" in intents:
+        return [
+            "Use a follow-up question to drill into a source, cluster, or confidence band from the summary.",
+        ]
+    if "open_analysis" in intents:
+        return [
+            "Ask a more specific follow-up when you want pivots, source comparison, or record-level evidence.",
+        ]
+    return [
+        "Use the supporting records as the first operational leads.",
+        "Ask a follow-up about a specific IOC, source, family, trend, or hunt path to narrow the analysis.",
+    ]
+
+
+def _local_confidence_label(metrics: Mapping[str, Any], supporting_records: list[dict[str, Any]]) -> str:
+    if not metrics.get("total_iocs"):
+        return "low"
+    if supporting_records and any((record.get("confidence_level") or 0) >= 75 for record in supporting_records):
+        return "medium-high"
+    if metrics.get("high_confidence_iocs", 0):
+        return "medium"
+    return "low-medium"
+
+
+def _should_include_record_support(intents: set[str]) -> bool:
+    return bool(
+        intents.intersection(
+            {
+                "prioritization",
+                "hunt",
+                "correlation",
+                "malware_family",
+                "enrichment",
+                "ioc_lookup",
+                "source_comparison",
+            }
+        )
+    )
+
+
+def _render_answer(
+    mode: str,
+    headline: str,
+    findings: list[str],
+    uncertainty: list[str],
+    *,
+    question_intents: set[str] | None = None,
+) -> str:
+    intents = question_intents or set()
     if mode == "brief":
         return headline
     if mode == "executive":
@@ -553,6 +872,15 @@ def _render_answer(mode: str, headline: str, findings: list[str], uncertainty: l
         if uncertainty:
             pieces.append(f"Limits: {'; '.join(uncertainty[:2])}.")
         return " ".join(pieces)
+    if "hunt" in intents or "prioritization" in intents:
+        action_hint = "Next, work the highest-confidence supporting records before broadening pivots."
+        return " ".join(part for part in (headline, " ".join(findings[:2]), action_hint) if part)
+    if "uncertainty" in intents and uncertainty:
+        return " ".join(part for part in (headline, " ".join(findings[:2]), f"Main limit: {uncertainty[0]}") if part)
+    if "summary" in intents:
+        return " ".join(part for part in (headline, findings[0] if findings else "", findings[1] if len(findings) > 1 else "") if part)
+    if "open_analysis" in intents:
+        return " ".join(part for part in (headline, findings[0] if findings else "") if part)
     return " ".join(part for part in (headline, " ".join(findings[:2])) if part)
 
 
@@ -616,31 +944,53 @@ def _validated_n8n_webhook_url() -> str:
     parsed = urlparse(url)
     hostname = str(parsed.hostname or "").lower()
     allowed_hosts = {str(host).strip().lower() for host in getattr(settings, "INTEL_ALLOWED_WEBHOOK_HOSTS", []) if str(host).strip()}
+    allow_local = bool(getattr(settings, "INTEL_CHAT_N8N_ALLOW_LOCAL", False))
+    is_local = hostname in {"localhost", "localhost.localdomain"} or _hostname_is_private_or_loopback(hostname)
 
-    if parsed.scheme != "https" or not hostname:
-        raise ChatbotServiceError("n8n webhook URL must use HTTPS.")
-    if _is_blocked_webhook_host(hostname):
+    if not hostname or parsed.scheme not in {"http", "https"}:
+        raise ChatbotServiceError("n8n webhook URL must use HTTP or HTTPS.")
+    if is_local:
+        if not allow_local:
+            raise ChatbotServiceError("Local n8n webhook hosts are not enabled.")
+    elif parsed.scheme != "https":
+        raise ChatbotServiceError("Remote n8n webhook URL must use HTTPS.")
+    elif _is_blocked_webhook_host(hostname):
         raise ChatbotServiceError("n8n webhook host is not allowed.")
-    if not allowed_hosts or hostname not in allowed_hosts:
-        raise ChatbotServiceError("n8n webhook host is not in the allowlist.")
-    if not _webhook_host_resolves_safely(hostname):
+    elif not allowed_hosts and not _webhook_host_resolves_safely(hostname):
         raise ChatbotServiceError("n8n webhook host resolution is not allowed.")
+
+    if allowed_hosts and hostname not in allowed_hosts:
+        raise ChatbotServiceError("n8n webhook host is not in the allowlist.")
     return url
 
 
 def _build_n8n_payload(payload: dict[str, Any]) -> dict[str, Any]:
     sanitized = {
+        "request_id": payload.get("request_id"),
+        "workflow": {
+            "name": "threatfoundry_analyst_chat",
+            "contract_version": "2026-04-analyst-chat-v1",
+            "response_contract": N8N_RESPONSE_CONTRACT,
+        },
+        "analyst_question": payload.get("analyst_question") or payload.get("user_query"),
         "user_query": payload.get("user_query"),
         "summary_mode": payload.get("summary_mode"),
+        "response_guidance": payload.get("response_guidance") or {},
+        "conversation_context": payload.get("conversation_context") or [],
         "dashboard_filters": payload.get("dashboard_filters"),
+        "context": {
+            "ioc": payload.get("ioc_context"),
+            "filters": payload.get("dashboard_filters"),
+        },
         "ioc_context": payload.get("ioc_context"),
     }
     if getattr(settings, "INTEL_CHAT_INCLUDE_SYSTEM_PROMPT", False):
-        sanitized["system_prompt"] = payload.get("system_prompt")
+        sanitized["system_instructions"] = payload.get("system_instructions") or payload.get("system_prompt")
 
-    context = sanitized.get("ioc_context")
+    context = sanitized["context"].get("ioc")
     if isinstance(context, dict):
         context = dict(context)
+        context["focused_records"] = list(context.get("focused_records") or [])[:8]
         context["top_suspicious"] = list(context.get("top_suspicious") or [])[:10]
         context["noisy_records"] = list(context.get("noisy_records") or [])[:10]
         lookup = context.get("lookup")
@@ -648,8 +998,17 @@ def _build_n8n_payload(payload: dict[str, Any]) -> dict[str, Any]:
             lookup = dict(lookup)
             lookup["results"] = list(lookup.get("results") or [])[:5]
             context["lookup"] = lookup
+        sanitized["context"]["ioc"] = context
         sanitized["ioc_context"] = context
     return sanitized
+
+
+def _hostname_is_private_or_loopback(hostname: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private
 
 
 def _serialize_filters(filters: DashboardFilters) -> dict[str, Any]:
@@ -677,9 +1036,32 @@ def _append_target(targets: list[dict[str, str]], seen: set[tuple[str, str]], ta
 
 
 def _normalize_text_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
     if not isinstance(value, list):
         return []
-    return [str(item).strip() for item in value if str(item).strip()]
+    rows = []
+    for item in value:
+        if isinstance(item, Mapping):
+            text = str(item.get("text") or item.get("value") or item.get("content") or "").strip()
+        else:
+            text = str(item).strip()
+        if text:
+            rows.append(text)
+    return rows
+
+
+def _dedupe_text(items: list[str]) -> list[str]:
+    rows = []
+    seen = set()
+    for item in items:
+        text = str(item or "").strip()
+        key = text.lower()
+        if text and key not in seen:
+            seen.add(key)
+            rows.append(text)
+    return rows
 
 
 def _normalize_record_list(value: Any) -> list[dict[str, Any]]:
@@ -703,8 +1085,10 @@ def _normalize_record_list(value: Any) -> list[dict[str, Any]]:
                     "timeline_at": str(item.get("timeline_at") or ""),
                     "reference_url": str(item.get("reference_url") or ""),
                     "tags": _normalize_text_list(item.get("tags")),
+                    "correlation_reasons": _normalize_text_list(item.get("correlation_reasons")),
                     "enrichment_providers": _normalize_text_list(item.get("enrichment_providers")),
                     "enrichment_count": int(item.get("enrichment_count") or 0),
+                    "calculated_score": item.get("calculated_score"),
                     "suspicious_score": int(item.get("suspicious_score") or 0),
                 }
             )

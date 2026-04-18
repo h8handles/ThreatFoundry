@@ -4,17 +4,22 @@
 {% block title %}ThreatFoundry | Analyst Assistant{% endblock %}
 {% block page_kicker %}Assistant Workspace{% endblock %}
 {% block page_heading %}Analyst Assistant{% endblock %}
-{% block page_subtitle %}Ask structured intelligence questions and get scoped answers from IOC records, clusters, and enrichment context.{% endblock %}
+{% block page_subtitle %}Ask natural investigation questions and get scoped answers from IOC records, clusters, enrichment, and analyst workflow context.{% endblock %}
 
 {% block page_header_actions %}
-    <a class="secondary-button" href="{% url 'intel:dashboard' %}">Back To Dashboard</a>
+    {% if is_popout %}
+        <a class="secondary-button" href="{% url 'intel:analyst_chat' %}">Open Full Assistant</a>
+    {% else %}
+        <button class="secondary-button assistant-popout-button" type="button" id="assistant-popout-button">Pop Out Chat</button>
+        <a class="secondary-button" href="{% url 'intel:dashboard' %}">Back To Dashboard</a>
+    {% endif %}
 {% endblock %}
 
 {% block content %}
 {{ chat_bootstrap|json_script:"analyst-chat-bootstrap" }}
 
-<section class="assistant-workspace">
-    <aside class="panel assistant-sidebar">
+<section class="assistant-workspace{% if is_popout %} assistant-workspace-popout{% endif %}">
+    <aside class="panel assistant-sidebar{% if is_popout %} assistant-sidebar-popout-hidden{% endif %}">
         <header class="section-header">
             <div>
                 <p class="eyebrow">Prompt Library</p>
@@ -40,12 +45,12 @@
 
             <div class="assistant-note-block">
                 <p class="section-title">Behavior</p>
-                <p class="muted">This assistant can answer in analyst, technical, executive, and brief formats while preserving database-source context.</p>
+                <p class="muted">This assistant adapts answer shape to the question while preserving database-source context.</p>
             </div>
         </div>
     </aside>
 
-    <section class="panel assistant-chat-panel">
+    <section class="panel assistant-chat-panel{% if is_popout %} assistant-chat-panel-popout{% endif %}">
         <header class="section-header">
             <div>
                 <p class="eyebrow">Conversation</p>
@@ -79,7 +84,7 @@
 
             <div class="assistant-form-actions">
                 <span class="chat-status" id="assistant-chat-status">Ready</span>
-                <button class="primary-button assistant-send-button" type="submit">Run Analyst Query</button>
+                <button class="primary-button assistant-send-button" type="submit">Send</button>
             </div>
         </form>
     </section>

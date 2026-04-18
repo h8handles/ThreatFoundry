@@ -1047,6 +1047,18 @@ textarea:focus-visible,
     padding-bottom: 12px;
 }
 
+.assistant-workspace-popout {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.assistant-sidebar-popout-hidden {
+    display: none;
+}
+
+.assistant-chat-panel-popout {
+    min-height: calc(100vh - 170px);
+}
+
 .assistant-sidebar-body {
     padding: 0 16px 14px;
     display: grid;
@@ -1068,6 +1080,10 @@ textarea:focus-visible,
     overflow-y: auto;
     display: grid;
     gap: 8px;
+}
+
+.assistant-workspace-popout .assistant-thread {
+    max-height: calc(100vh - 340px);
 }
 
 .assistant-message-user {

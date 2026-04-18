@@ -1931,9 +1931,11 @@ class AuthenticationAndAccessControlTests(TestCase):
 
         dashboard_response = self.client.get(reverse("intel:dashboard"))
         chat_response = self.client.get(reverse("intel:analyst_chat"))
+        popout_response = self.client.get(f"{reverse('intel:analyst_chat')}?popout=1")
 
         self.assertEqual(dashboard_response.status_code, 200)
         self.assertEqual(chat_response.status_code, 403)
+        self.assertEqual(popout_response.status_code, 403)
 
     def test_analyst_and_admin_can_access_analyst_chat(self):
         for user in (self.analyst_user, self.admin_user):

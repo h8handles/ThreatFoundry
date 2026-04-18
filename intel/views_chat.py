@@ -48,9 +48,13 @@ def _is_rate_limited(request, *, bucket: dict[str, list[float]], limit: int) -> 
 @role_required(ANALYST_GROUP)
 def analyst_chat_view(request):
     filters = parse_dashboard_filters(request.GET)
+    is_popout = request.GET.get("popout") == "1"
+    chat_bootstrap = build_chat_bootstrap(filters)
+    chat_bootstrap["is_popout"] = is_popout
     context = {
-        "chat_bootstrap": build_chat_bootstrap(filters),
+        "chat_bootstrap": chat_bootstrap,
         "scope_badges": build_scope_badges(filters),
+        "is_popout": is_popout,
     }
     return render(request, "intel/analyst_chat.html", context)
 
@@ -81,6 +85,7 @@ def analyst_chat_api_view(request):
             user_prompt=prompt,
             summary_mode=payload.get("summary_mode"),
             filters_payload=payload.get("dashboard_filters"),
+            conversation_payload=payload.get("conversation_context"),
         )
     except ChatbotServiceError:
         log.exception("Analyst chat response generation failed")

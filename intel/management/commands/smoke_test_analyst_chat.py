@@ -52,6 +52,11 @@ class Command(BaseCommand):
             help="Temporarily override INTEL_CHAT_N8N_TIMEOUT for this command run.",
         )
         parser.add_argument(
+            "--allow-local-n8n",
+            action="store_true",
+            help="Temporarily allow http://localhost or private-address n8n webhook URLs.",
+        )
+        parser.add_argument(
             "--require-n8n",
             action="store_true",
             help=(
@@ -176,6 +181,7 @@ class Command(BaseCommand):
             "INTEL_CHAT_N8N_WEBHOOK_URL",
             "INTEL_CHAT_N8N_BEARER_TOKEN",
             "INTEL_CHAT_N8N_TIMEOUT",
+            "INTEL_CHAT_N8N_ALLOW_LOCAL",
         ]
         original = {key: getattr(settings, key, None) for key in keys}
 
@@ -188,6 +194,8 @@ class Command(BaseCommand):
                 settings.INTEL_CHAT_N8N_BEARER_TOKEN = options["n8n_bearer_token"]
             if options.get("n8n_timeout") is not None:
                 settings.INTEL_CHAT_N8N_TIMEOUT = options["n8n_timeout"]
+            if options.get("allow_local_n8n"):
+                settings.INTEL_CHAT_N8N_ALLOW_LOCAL = True
             yield
         finally:
             for key, value in original.items():

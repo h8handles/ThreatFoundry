@@ -27,12 +27,23 @@ db.sqlite3-wal
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.cache/
 .coverage
 .coverage.*
 htmlcov/
 .tox/
 .nox/
 coverage.xml
+
+# CodeQL and scan outputs
+codeql-db/
+codeql-database/
+databases/
+.codeql/
+*.sarif
+*.bqrs
+*.trap
+codeql-debug-artifacts.zip
 
 # IDE and OS files
 .vscode/
@@ -48,6 +59,8 @@ importtime.log
 
 # Generated local reports
 ioc_workbench_repo_summary.pdf
+results/
+artifacts/
 .aider*
 .aider.tags.cache.v4/
 *.pid

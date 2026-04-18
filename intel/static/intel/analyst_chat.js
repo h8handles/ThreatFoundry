@@ -6,12 +6,39 @@
     const modeSelect = document.getElementById("assistant-summary-mode");
     const statusEl = document.getElementById("assistant-chat-status");
     const promptGrid = document.getElementById("assistant-prompt-grid");
+    const popoutButton = document.getElementById("assistant-popout-button");
 
     if (!bootstrapEl || !form || !thread || !input || !modeSelect || !statusEl || !promptGrid) {
         return;
     }
 
     const bootstrap = JSON.parse(bootstrapEl.textContent || "{}");
+    const conversationContext = [];
+    const maxConversationMessages = 8;
+
+    function openPopoutChat() {
+        const popoutUrl = String(bootstrap.popout_url || "");
+        if (!popoutUrl.startsWith("/")) {
+            setStatus("Pop out unavailable");
+            return;
+        }
+
+        const popup = window.open(
+            popoutUrl,
+            "threatfoundry_analyst_chat_popout",
+            "popup=yes,width=980,height=760,noopener,noreferrer"
+        );
+        if (popup) {
+            try {
+                popup.opener = null;
+            } catch (error) {
+                // Some browsers prevent changing opener after window.open with noopener.
+            }
+            popup.focus();
+        } else {
+            setStatus("Allow pop ups to open chat");
+        }
+    }
 
     function getCsrfToken() {
         const match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
@@ -101,6 +128,7 @@
             appendTextElement(wrapper, "p", "assistant-message-text", payload);
             thread.appendChild(wrapper);
             thread.scrollTop = thread.scrollHeight;
+            rememberMessage("user", payload);
             return;
         }
 
@@ -126,15 +154,28 @@
         }
 
         appendTextElement(wrapper, "div", "assistant-message-heading", "Analyst Chat");
-        appendTextElement(
-            wrapper,
-            "div",
-            "assistant-message-meta",
-            `Mode: ${payload.summary_mode || ""} | Provider: ${payload.provider || ""} | Source of truth: ${payload.source_of_truth || ""}`
-        );
+        const metaParts = [];
+        if (payload.summary_mode) {
+            metaParts.push(`Mode: ${payload.summary_mode}`);
+        }
+        if (payload.provider) {
+            metaParts.push(`Provider: ${payload.provider}`);
+        }
+        if (payload.source_of_truth) {
+            metaParts.push(`Source of truth: ${payload.source_of_truth}`);
+        }
+        if (metaParts.length) {
+            appendTextElement(wrapper, "div", "assistant-message-meta", metaParts.join(" | "));
+        }
         appendTextElement(wrapper, "p", "assistant-message-text", payload.answer);
+        if (payload.reasoning_summary) {
+            appendTextElement(wrapper, "p", "assistant-support-copy", payload.reasoning_summary);
+        }
+        if (payload.confidence) {
+            appendTextElement(wrapper, "p", "assistant-support-copy", `Confidence: ${payload.confidence}`);
+        }
 
-        [renderList("Key findings", payload.key_findings), renderList("Recommended actions", payload.recommended_actions), renderList("Uncertainty", payload.uncertainty)].forEach((node) => {
+        responseSectionsFor(payload).forEach((node) => {
             if (node) {
                 wrapper.appendChild(node);
             }
@@ -149,11 +190,42 @@
 
         thread.appendChild(wrapper);
         thread.scrollTop = thread.scrollHeight;
+        rememberMessage("assistant", payload.answer || "");
+    }
+
+    function responseSectionsFor(payload) {
+        const sections = [];
+        const mode = String(payload.summary_mode || "").toLowerCase();
+        const hasRecords = payload.supporting_records && payload.supporting_records.length;
+        if (payload.key_findings && payload.key_findings.length && mode !== "brief") {
+            sections.push(renderList(hasRecords ? "Supporting findings" : "Key findings", payload.key_findings));
+        }
+        if (payload.uncertainty && payload.uncertainty.length) {
+            sections.push(renderList("Uncertainty", payload.uncertainty));
+        }
+        if (payload.recommended_actions && payload.recommended_actions.length && mode !== "executive") {
+            sections.push(renderList("Next steps", payload.recommended_actions));
+        }
+        return sections;
+    }
+
+    function rememberMessage(role, content) {
+        const text = String(content || "").trim();
+        if (!text) {
+            return;
+        }
+        conversationContext.push({
+            role: role,
+            content: text.slice(0, 900),
+        });
+        while (conversationContext.length > maxConversationMessages) {
+            conversationContext.shift();
+        }
     }
 
     async function submitPrompt(prompt) {
         renderMessage("user", prompt);
-        setStatus("Querying IOC database...");
+        setStatus(bootstrap.n8n_configured ? "Querying analyst workflow..." : "Querying IOC database...");
 
         try {
             const response = await fetch(bootstrap.api_url, {
@@ -166,6 +238,7 @@
                     prompt: prompt,
                     summary_mode: modeSelect.value,
                     dashboard_filters: bootstrap.filters || {},
+                    conversation_context: conversationContext.slice(0, -1),
                 }),
             });
 
@@ -214,6 +287,10 @@
         submitPrompt(prompt);
     });
 
+    if (popoutButton && !bootstrap.is_popout) {
+        popoutButton.addEventListener("click", openPopoutChat);
+    }
+
     renderMessage("assistant", {
         answer: "Ask about a specific IOC, suspicious sources, clusters, enrichment, confidence, or what should be investigated first.",
         summary_mode: "analyst",
@@ -228,4 +305,5 @@
         supporting_records: [],
         supporting_data: {},
     });
+    conversationContext.length = 0;
 })();
