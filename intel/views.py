@@ -149,7 +149,15 @@ def malware_family_view(request):
 
 @role_required(VIEWER_GROUP)
 def documentation_view(request, doc_name=None):
-    #import markdown
+    """Render the in-app documentation wiki from repository markdown files.
+
+    The docs area intentionally uses the existing `docs/*.md` files as the
+    source of truth. New markdown files placed in that directory are discovered
+    automatically, shown in the sidebar, and rendered through the same safe
+    markdown path. The selected filename is validated against the discovered
+    set before the file is read, which keeps the route from becoming a path
+    traversal primitive.
+    """
 
     docs_dir = (Path(settings.BASE_DIR) / "docs").resolve()
     if not docs_dir.exists() or not docs_dir.is_dir():
@@ -229,6 +237,13 @@ def set_time_display_view(request):
     return redirect("intel:dashboard")
 
 def _build_whois_blade_context(record: IntelIOC) -> dict:
+    """Build the optional WHOIS/geolocation panel for IOC detail pages.
+
+    This helper keeps lookup errors out of the template layer by returning a
+    small status object for unsupported, failed, and successful lookups. The
+    view can render the blade consistently while the enrichment service handles
+    DNS safety checks, registrable-domain fallback, and provider exceptions.
+    """
     value = (record.value or "").strip()
     value_type = (record.value_type or "").strip().lower().replace("-", "_")
 

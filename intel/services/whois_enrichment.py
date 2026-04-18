@@ -97,11 +97,18 @@ def _has_enrichment_data(payload: dict[str, Any]) -> bool:
 
 
 def _normalize_whois_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize provider WHOIS shape before the UI consumes it."""
     payload["domain_name"] = _normalize_domain(str(payload.get("domain_name") or ""))
     return payload
 
 
 def parse_target(value: str | None) -> ParsedTarget:
+    """Validate and classify a user-provided WHOIS target.
+
+    IP addresses are checked with the safe-public-IP guard before enrichment.
+    Domain targets are normalized but are not DNS-resolved here so WHOIS can
+    still fall back from noisy subdomains to their registrable domain.
+    """
     raw = str(value or "").strip()
     log.debug("WHOIS parse_target received input.")
     if not raw:
@@ -166,6 +173,13 @@ def _build_ip_result(target: ParsedTarget) -> dict[str, Any]:
 
 
 def _build_domain_result(target: ParsedTarget) -> dict[str, Any]:
+    """Build WHOIS and geolocation context for a domain target.
+
+    WHOIS is attempted against the full normalized host first. When that fails
+    for a subdomain, the code falls back to the registrable domain so analysts
+    still get ownership context for infrastructure like random.host.example.
+    DNS/IP safety remains in the geolocation path through `resolve_domain_to_ip`.
+    """
     whois_payload: dict[str, Any] = {}
     geolocation_payload: dict[str, Any] = {}
     resolved_ip = None

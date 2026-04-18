@@ -118,6 +118,14 @@ def build_chat_response(
     filters_payload: Any,
     conversation_payload: Any = None,
 ) -> dict[str, Any]:
+    """Build a complete analyst-chat response from UI payload pieces.
+
+    The public chat endpoint sends a natural-language prompt, optional dashboard
+    filters, and recent conversation turns. This function separates those pieces
+    into explicit provider payload fields so either the local responder or n8n
+    receives the same analyst question, scoped IOC context, conversation memory,
+    and response contract.
+    """
     prompt = str(user_prompt or "").strip()
     if not prompt:
         raise ChatbotServiceError("Prompt is required.")
@@ -254,6 +262,14 @@ def resolve_summary_mode(explicit_mode: str | None, user_prompt: str) -> str:
 
 
 def build_chat_context(filters: DashboardFilters, user_prompt: str) -> dict[str, Any]:
+    """Select IOC context that is relevant to the analyst's question.
+
+    The assistant should answer open-ended questions without drowning the model
+    or workflow in the entire database. This context builder applies dashboard
+    filters, keeps bounded recent records, extracts specific observables from
+    the prompt, and returns aggregate slices for trends, sources, enrichment,
+    clusters, prioritization, and follow-up investigation.
+    """
     queryset = queryset_for_dashboard_filters().annotate(
         raw_payload_text=Cast("raw_payload", output_field=TextField()),
         tags_text=Cast("tags", output_field=TextField()),
@@ -499,6 +515,7 @@ def normalize_ioc_record(record: Any) -> dict[str, Any]:
 
 
 def _call_chat_provider(payload: dict[str, Any]) -> dict[str, Any]:
+    """Route analyst chat to n8n when configured, otherwise use local fallback."""
     provider_mode = str(getattr(settings, "INTEL_CHAT_PROVIDER", "hybrid") or "hybrid").strip().lower()
     webhook_url = _n8n_webhook_url()
 
@@ -517,6 +534,13 @@ def _call_chat_provider(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _call_n8n(payload: dict[str, Any]) -> dict[str, Any]:
+    """Send the normalized analyst payload to the configured n8n webhook.
+
+    The response parser accepts a few common n8n output shapes while still
+    requiring a usable `answer` field. Optional fields remain optional so the
+    workflow can answer flexibly instead of forcing every response into one
+    rigid template.
+    """
     headers = {"Content-Type": "application/json"}
     bearer = str(getattr(settings, "INTEL_CHAT_N8N_BEARER_TOKEN", "") or "").strip()
     if bearer:

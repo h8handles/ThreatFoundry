@@ -46,7 +46,8 @@ Use this skill for tasks such as:
 ## Common Focus Areas
 
 ### README Structure
-- what the project is
+- high-level project description
+- what the project could be
 - why it exists
 - current workflow
 - installation

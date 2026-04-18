@@ -9,14 +9,22 @@ from intel.models import Ticket
 
 
 def _is_popout_request(request) -> bool:
+    """Return whether the ticket UI should render in standalone popout mode."""
     return request.GET.get("popout") == "1"
 
 
 def _with_popout(url: str, is_popout: bool) -> str:
+    """Preserve the layout-only popout flag across ticket redirects."""
     return f"{url}?popout=1" if is_popout else url
 
 
 def _ticket_detail_context(request, ticket, *, update_form=None, note_form=None):
+    """Build shared context for ticket detail rendering and validation errors.
+
+    Both update and note submissions return to the same ticket workspace. This
+    helper keeps the selected ticket, forms, chronological notes, and popout URL
+    consistent for normal GETs, failed update POSTs, and failed note POSTs.
+    """
     is_popout = _is_popout_request(request)
     return {
         "ticket": ticket,
@@ -30,6 +38,7 @@ def _ticket_detail_context(request, ticket, *, update_form=None, note_form=None)
 
 @role_required(ANALYST_GROUP)
 def ticket_list_view(request):
+    """Render the analyst ticket queue and handle new ticket creation."""
     is_popout = _is_popout_request(request)
     selected_status = str(request.GET.get("status") or "").strip()
     valid_statuses = {value for value, _label in Ticket.Status.choices}
@@ -67,6 +76,7 @@ def ticket_list_view(request):
 
 @role_required(ANALYST_GROUP)
 def ticket_detail_view(request, pk: int):
+    """Render and update a ticket record without changing note history."""
     ticket = get_object_or_404(Ticket.objects.select_related("created_by", "assigned_to"), pk=pk)
     if request.method == "POST":
         update_form = TicketUpdateForm(request.POST, instance=ticket)
@@ -86,6 +96,7 @@ def ticket_detail_view(request, pk: int):
 @require_POST
 @role_required(ANALYST_GROUP)
 def ticket_note_create_view(request, pk: int):
+    """Append a note to a ticket while preserving auth, CSRF, and popout state."""
     ticket = get_object_or_404(Ticket.objects.select_related("created_by", "assigned_to"), pk=pk)
     note_form = TicketNoteForm(request.POST)
     if note_form.is_valid():
