@@ -105,7 +105,7 @@ The app reads `.env` values using `python-dotenv` when available.
 
 - `DJANGO_SECRET_KEY`: required when `DJANGO_DEBUG=false`
 - `DJANGO_DEBUG`: `true` or `false`
-- `DJANGO_RUNSERVER_HOST`: default dev bind address (default `172.30.150.130`)
+- `DJANGO_RUNSERVER_HOST`: default dev bind address (default `172.30.150.130`) #change this 
 - `DJANGO_RUNSERVER_PORT`: default dev bind port (default `8080`)
 - `DJANGO_ALLOWED_HOSTS`: comma-separated hosts; leave blank in local debug mode to allow dev hosts/tunnels
 - `DJANGO_CSRF_TRUSTED_ORIGINS`: comma-separated origins
