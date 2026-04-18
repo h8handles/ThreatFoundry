@@ -14,7 +14,8 @@
 
     const bootstrap = JSON.parse(bootstrapEl.textContent || "{}");
     const conversationContext = [];
-    const maxConversationMessages = 8;
+    const maxConversationMessages = 10;
+    const maxConversationMessageChars = 1200;
 
     function openPopoutChat() {
         const popoutUrl = String(bootstrap.popout_url || "");
@@ -216,7 +217,7 @@
         }
         conversationContext.push({
             role: role,
-            content: text.slice(0, 900),
+            content: text.slice(0, maxConversationMessageChars),
         });
         while (conversationContext.length > maxConversationMessages) {
             conversationContext.shift();
@@ -226,6 +227,8 @@
     async function submitPrompt(prompt) {
         renderMessage("user", prompt);
         setStatus(bootstrap.n8n_configured ? "Querying analyst workflow..." : "Querying IOC database...");
+        const priorConversation = conversationContext.slice(0, -1);
+        const chatTurn = conversationContext.filter((item) => item.role === "user").length;
 
         try {
             const response = await fetch(bootstrap.api_url, {
@@ -238,7 +241,8 @@
                     prompt: prompt,
                     summary_mode: modeSelect.value,
                     dashboard_filters: bootstrap.filters || {},
-                    conversation_context: conversationContext.slice(0, -1),
+                    conversation_context: priorConversation,
+                    chat_turn: chatTurn,
                 }),
             });
 

@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 import re
 import socket
 import uuid
 from collections import Counter
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import requests
 from django.conf import settings
@@ -29,8 +31,8 @@ from intel.services.dashboard import (
 SUPPORTED_SUMMARY_MODES = ("auto", "analyst", "executive", "technical", "brief")
 DEFAULT_SUMMARY_MODE = "auto"
 MAX_LOOKUP_RESULTS = 5
-MAX_CONVERSATION_MESSAGES = 8
-MAX_CONVERSATION_MESSAGE_CHARS = 900
+MAX_CONVERSATION_MESSAGES = 10
+MAX_CONVERSATION_MESSAGE_CHARS = 1200
 URL_PATTERN = re.compile(r"https?://[^\s)]+", re.IGNORECASE)
 IP_PATTERN = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 HASH_PATTERN = re.compile(r"\b[a-fA-F0-9]{32}\b|\b[a-fA-F0-9]{40}\b|\b[a-fA-F0-9]{64}\b")
@@ -60,9 +62,9 @@ QUESTION_RESPONSE_GUIDANCE = {
     "source_comparison": "Compare sources by volume, confidence, and operational usefulness.",
     "trend": "Emphasize time slices and source changes. Avoid forcing IOC tables when the question is trend-level.",
     "correlation": "Focus on shared family, source, tags, infrastructure, and stored correlation reasons.",
-    "summary": "Summarize scope and risk. Keep supporting detail concise.",
-    "prioritization": "Rank what to work first and explain why those leads reduce risk or uncertainty.",
-    "hunt": "Convert evidence into a hunting hypothesis and concrete pivots.",
+    "summary": "Summarize scope and risk with enough evidence to support the conclusion. Include scoped counts, key clusters, source mix, and next decisions when available.",
+    "prioritization": "Rank what to work first and explain why those leads reduce risk or uncertainty. Include the evidence that justifies the ordering.",
+    "hunt": "Convert evidence into a hunting hypothesis and concrete pivots. Include concrete observable, source, cluster, and confidence details when available.",
     "uncertainty": "Separate what is supported from what is missing or weakly evidenced.",
     "enrichment": "Discuss available provider evidence and enrichment gaps.",
     "open_analysis": "Answer naturally using the most relevant context; do not force a fixed section template.",
@@ -74,13 +76,23 @@ class ChatbotServiceError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class N8NWebhookConfig:
+    url: str
+    method: str
+    timeout: int
+    headers: dict[str, str]
+    webhook_mode: str
+
+
 def build_chat_bootstrap(filters: DashboardFilters) -> dict[str, Any]:
+    serialized_filters = _serialize_filters(filters)
     return {
         "api_url": reverse("intel:analyst_chat_api"),
-        "popout_url": f"{reverse('intel:analyst_chat')}?popout=1",
+        "popout_url": _build_chat_popout_url(serialized_filters),
         "default_mode": DEFAULT_SUMMARY_MODE,
         "supported_modes": list(SUPPORTED_SUMMARY_MODES),
-        "filters": _serialize_filters(filters),
+        "filters": serialized_filters,
         "sample_prompts": [
             "What do we know about 1.2.3.4?",
             "Which source looks most suspicious right now?",
@@ -92,6 +104,12 @@ def build_chat_bootstrap(filters: DashboardFilters) -> dict[str, Any]:
         "n8n_configured": bool(_n8n_webhook_url()),
         "provider_mode": str(getattr(settings, "INTEL_CHAT_PROVIDER", "hybrid") or "hybrid"),
     }
+
+
+def _build_chat_popout_url(filters: dict[str, Any]) -> str:
+    query = {"popout": 1}
+    query.update({key: value for key, value in filters.items() if value not in ("", None)})
+    return f"{reverse('intel:analyst_chat')}?{urlencode(query)}"
 
 
 def build_scope_badges(filters: DashboardFilters) -> list[dict[str, str]]:
@@ -117,6 +135,7 @@ def build_chat_response(
     summary_mode: str | None,
     filters_payload: Any,
     conversation_payload: Any = None,
+    chat_turn: Any = None,
 ) -> dict[str, Any]:
     """Build a complete analyst-chat response from UI payload pieces.
 
@@ -134,6 +153,11 @@ def build_chat_response(
     resolved_mode = resolve_summary_mode(summary_mode, prompt)
     context = build_chat_context(filters, prompt)
     conversation_context = normalize_conversation_context(conversation_payload)
+    conversation_meta = {
+        "turn_sequence": _normalize_chat_turn(chat_turn),
+        "history_message_count": len(conversation_context),
+        "history_included": bool(conversation_context),
+    }
     response_guidance = build_response_guidance(context.get("query_focus", {}), resolved_mode)
     provider_payload = {
         "request_id": uuid.uuid4().hex,
@@ -145,6 +169,7 @@ def build_chat_response(
         "response_guidance": response_guidance,
         "dashboard_filters": _serialize_filters(filters),
         "conversation_context": conversation_context,
+        "conversation_meta": conversation_meta,
         "ioc_context": context,
     }
 
@@ -185,9 +210,9 @@ def build_chat_response(
 
 def build_system_instructions(summary_mode: str, response_guidance: Mapping[str, Any] | None = None) -> str:
     mode_guidance = {
-        "analyst": "Use the structure that best fits the question. Lead with the answer, then add evidence or next steps only when useful.",
+        "analyst": "Use the structure that best fits the question. Lead with the answer, then add supporting evidence, implications, uncertainty, and next steps when the question asks for analysis or a scope summary.",
         "technical": "Favor precise IOC fields, source names, confidence, enrichment, and pivot details. Avoid executive gloss.",
-        "executive": "Keep the answer business-readable and concise. Emphasize risk, impact, confidence, and decisions.",
+        "executive": "Keep the answer business-readable but complete enough to support a decision. Emphasize risk, impact, confidence, and decisions.",
         "brief": "Answer in a short paragraph or a few bullets. Do not include sections unless they clarify the answer.",
     }.get(summary_mode, "Adapt the format to the analyst question.")
     guidance_text = ""
@@ -202,13 +227,26 @@ def build_response_guidance(query_focus: Mapping[str, Any], summary_mode: str) -
     if summary_mode == "brief":
         instructions.append("Keep optional fields sparse; do not add supporting records unless they directly answer the question.")
     elif summary_mode == "executive":
-        instructions.append("Prefer decision-ready risk language over raw IOC enumeration.")
+        instructions.append("Prefer decision-ready risk language over raw IOC enumeration, but include enough scoped evidence to justify the readout.")
+    else:
+        instructions.append(
+            "For investigative, summary, prioritization, and hunt questions, return a complete analyst answer rather than a prematurely short response."
+        )
     return {
         "intents": intents,
         "mode": summary_mode,
         "instructions": _dedupe_text(instructions),
-        "allow_sparse_optional_fields": True,
+        "allow_sparse_optional_fields": summary_mode == "brief",
+        "depth": "brief" if summary_mode == "brief" else "full_when_useful",
     }
+
+
+def _normalize_chat_turn(value: Any) -> int | None:
+    try:
+        turn = int(value)
+    except (TypeError, ValueError):
+        return None
+    return turn if turn > 0 else None
 
 
 def normalize_conversation_context(value: Any) -> list[dict[str, str]]:
@@ -518,18 +556,44 @@ def _call_chat_provider(payload: dict[str, Any]) -> dict[str, Any]:
     """Route analyst chat to n8n when configured, otherwise use local fallback."""
     provider_mode = str(getattr(settings, "INTEL_CHAT_PROVIDER", "hybrid") or "hybrid").strip().lower()
     webhook_url = _n8n_webhook_url()
+    conversation_meta = payload.get("conversation_meta") if isinstance(payload.get("conversation_meta"), Mapping) else {}
+    log_fields = {
+        "request_id": payload.get("request_id"),
+        "provider_mode": provider_mode,
+        "turn_sequence": conversation_meta.get("turn_sequence"),
+        "conversation_history_included": bool(conversation_meta.get("history_included")),
+        "conversation_message_count": conversation_meta.get("history_message_count", 0),
+        "webhook_configured": bool(webhook_url),
+    }
 
     if provider_mode == "n8n" and not webhook_url:
+        log.error(
+            "Analyst chat provider path n8n_attempted=False fallback_used=False reason=missing_webhook %s",
+            log_fields,
+        )
         raise ChatbotServiceError("INTEL_CHAT_N8N_WEBHOOK_URL is not configured.")
 
     if provider_mode in {"n8n", "hybrid"} and webhook_url:
         try:
-            return _call_n8n(payload)
+            log.info("Analyst chat provider path n8n_attempted=True fallback_used=False event=attempt %s", log_fields)
+            response = _call_n8n(payload)
+            log.info("Analyst chat provider path n8n_attempted=True fallback_used=False event=success %s", log_fields)
+            return response
         except ChatbotServiceError as exc:
-            log.warning("Analyst chat n8n provider failed; provider_mode=%s error=%s", provider_mode, exc)
+            log.warning(
+                "Analyst chat provider path n8n_attempted=True fallback_used=%s event=failure error=%s %s",
+                provider_mode != "n8n",
+                exc,
+                log_fields,
+            )
             if provider_mode == "n8n":
                 raise
 
+    log.info(
+        "Analyst chat provider path n8n_attempted=False fallback_used=%s event=local_answer %s",
+        provider_mode != "local",
+        log_fields,
+    )
     return _build_local_database_answer(payload)
 
 
@@ -541,22 +605,11 @@ def _call_n8n(payload: dict[str, Any]) -> dict[str, Any]:
     workflow can answer flexibly instead of forcing every response into one
     rigid template.
     """
-    headers = {"Content-Type": "application/json"}
-    bearer = str(getattr(settings, "INTEL_CHAT_N8N_BEARER_TOKEN", "") or "").strip()
-    if bearer:
-        headers["Authorization"] = f"Bearer {bearer}"
-
-    webhook_url = _validated_n8n_webhook_url()
+    config = get_n8n_webhook_config()
     n8n_payload = _build_n8n_payload(payload)
-    log.info("Sending analyst chat request to n8n webhook host=%s", urlparse(webhook_url).hostname)
+    response = send_n8n_webhook_payload(n8n_payload, config=config)
 
     try:
-        response = requests.post(
-            webhook_url,
-            json=n8n_payload,
-            headers=headers,
-            timeout=int(getattr(settings, "INTEL_CHAT_N8N_TIMEOUT", 20)),
-        )
         response.raise_for_status()
         data = response.json()
     except requests.RequestException as exc:
@@ -927,6 +980,46 @@ def _n8n_webhook_url() -> str:
     return str(getattr(settings, "INTEL_CHAT_N8N_WEBHOOK_URL", "") or "").strip()
 
 
+def _n8n_timeout_seconds() -> int:
+    try:
+        return int(getattr(settings, "INTEL_CHAT_N8N_TIMEOUT", 20))
+    except (TypeError, ValueError):
+        raise ChatbotServiceError("INTEL_CHAT_N8N_TIMEOUT must be an integer.")
+
+
+def _n8n_headers() -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    bearer = str(getattr(settings, "INTEL_CHAT_N8N_BEARER_TOKEN", "") or "").strip()
+    if bearer:
+        headers["Authorization"] = f"Bearer {bearer}"
+    return headers
+
+
+def _n8n_webhook_mode(url: str) -> str:
+    path = urlparse(url).path.lower()
+    if "/webhook-test/" in path:
+        return "test"
+    if "/webhook/" in path:
+        return "production"
+    return "unknown"
+
+
+def _looks_like_placeholder_webhook_url(url: str) -> bool:
+    lowered = str(url or "").strip().lower()
+    return any(
+        token in lowered
+        for token in (
+            "<",
+            ">",
+            "your-workspace",
+            "replace-with",
+            "placeholder",
+            "change-me",
+            "example.invalid",
+        )
+    )
+
+
 def _is_blocked_webhook_host(hostname: str) -> bool:
     host = str(hostname or "").strip().lower().rstrip(".")
     if not host or host in {"localhost", "localhost.localdomain"}:
@@ -965,6 +1058,11 @@ def _webhook_host_resolves_safely(hostname: str) -> bool:
 
 def _validated_n8n_webhook_url() -> str:
     url = _n8n_webhook_url()
+    if not url:
+        raise ChatbotServiceError("INTEL_CHAT_N8N_WEBHOOK_URL is not configured.")
+    if _looks_like_placeholder_webhook_url(url):
+        raise ChatbotServiceError("INTEL_CHAT_N8N_WEBHOOK_URL still looks like a placeholder.")
+
     parsed = urlparse(url)
     hostname = str(parsed.hostname or "").lower()
     allowed_hosts = {str(host).strip().lower() for host in getattr(settings, "INTEL_ALLOWED_WEBHOOK_HOSTS", []) if str(host).strip()}
@@ -988,6 +1086,113 @@ def _validated_n8n_webhook_url() -> str:
     return url
 
 
+def get_n8n_webhook_config() -> N8NWebhookConfig:
+    """Return the audited n8n webhook request settings in one place."""
+    url = _validated_n8n_webhook_url()
+    return N8NWebhookConfig(
+        url=url,
+        method="POST",
+        timeout=_n8n_timeout_seconds(),
+        headers=_n8n_headers(),
+        webhook_mode=_n8n_webhook_mode(url),
+    )
+
+
+def send_n8n_webhook_payload(payload: dict[str, Any], *, config: N8NWebhookConfig | None = None) -> requests.Response:
+    config = config or get_n8n_webhook_config()
+    preview = _n8n_payload_preview(payload)
+    log.info(
+        "n8n analyst chat webhook request url=%s method=%s webhook_mode=%s timeout=%s payload_preview=%s",
+        config.url,
+        config.method,
+        config.webhook_mode,
+        config.timeout,
+        preview,
+    )
+
+    try:
+        response = requests.post(
+            config.url,
+            json=payload,
+            headers=config.headers,
+            timeout=config.timeout,
+        )
+    except requests.Timeout as exc:
+        _log_n8n_request_exception("timeout", exc, config=config, preview=preview)
+        raise ChatbotServiceError(f"n8n request timed out: {exc}") from exc
+    except requests.ConnectionError as exc:
+        error_kind = _classify_connection_error(exc)
+        _log_n8n_request_exception(error_kind, exc, config=config, preview=preview)
+        raise ChatbotServiceError(f"n8n connection failed ({error_kind}): {exc}") from exc
+    except requests.RequestException as exc:
+        _log_n8n_request_exception("request_error", exc, config=config, preview=preview)
+        raise ChatbotServiceError(f"n8n request failed: {exc}") from exc
+
+    log.info(
+        "n8n analyst chat webhook response url=%s method=%s webhook_mode=%s status_code=%s response_preview=%s",
+        config.url,
+        config.method,
+        config.webhook_mode,
+        response.status_code,
+        _preview_text(response.text),
+    )
+    return response
+
+
+def _classify_connection_error(exc: requests.ConnectionError) -> str:
+    message = str(exc).lower()
+    if "name or service not known" in message or "temporary failure in name resolution" in message or "getaddrinfo" in message:
+        return "dns_error"
+    if "connection refused" in message or "actively refused" in message:
+        return "connection_refused"
+    return "connection_error"
+
+
+def _log_n8n_request_exception(
+    error_kind: str,
+    exc: Exception,
+    *,
+    config: N8NWebhookConfig,
+    preview: str,
+) -> None:
+    log.warning(
+        "n8n analyst chat webhook delivery failed url=%s method=%s webhook_mode=%s error_kind=%s error=%s payload_preview=%s",
+        config.url,
+        config.method,
+        config.webhook_mode,
+        error_kind,
+        exc,
+        preview,
+    )
+
+
+def _preview_text(value: Any, *, limit: int = 800) -> str:
+    text = str(value or "").replace("\r", "\\r").replace("\n", "\\n")
+    if len(text) > limit:
+        return f"{text[:limit]}..."
+    return text
+
+
+def _n8n_payload_preview(payload: dict[str, Any]) -> str:
+    context = payload.get("context") if isinstance(payload.get("context"), Mapping) else {}
+    ioc_context = context.get("ioc") if isinstance(context.get("ioc"), Mapping) else {}
+    preview = {
+        "request_id": payload.get("request_id"),
+        "workflow": payload.get("workflow", {}).get("name") if isinstance(payload.get("workflow"), Mapping) else "",
+        "summary_mode": payload.get("summary_mode"),
+        "analyst_question": _preview_text(payload.get("analyst_question") or payload.get("user_query"), limit=180),
+        "conversation_meta": payload.get("conversation_meta"),
+        "conversation_message_count": len(payload.get("conversation_context") or []),
+        "dashboard_filters": payload.get("dashboard_filters"),
+        "context_counts": {
+            "focused_records": len(ioc_context.get("focused_records") or []),
+            "top_suspicious": len(ioc_context.get("top_suspicious") or []),
+            "noisy_records": len(ioc_context.get("noisy_records") or []),
+        },
+    }
+    return _preview_text(json.dumps(preview, default=str, sort_keys=True), limit=1200)
+
+
 def _build_n8n_payload(payload: dict[str, Any]) -> dict[str, Any]:
     sanitized = {
         "request_id": payload.get("request_id"),
@@ -997,10 +1202,12 @@ def _build_n8n_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "response_contract": N8N_RESPONSE_CONTRACT,
         },
         "analyst_question": payload.get("analyst_question") or payload.get("user_query"),
+        "latest_user_question": payload.get("analyst_question") or payload.get("user_query"),
         "user_query": payload.get("user_query"),
         "summary_mode": payload.get("summary_mode"),
         "response_guidance": payload.get("response_guidance") or {},
         "conversation_context": payload.get("conversation_context") or [],
+        "conversation_meta": payload.get("conversation_meta") or {},
         "dashboard_filters": payload.get("dashboard_filters"),
         "context": {
             "ioc": payload.get("ioc_context"),

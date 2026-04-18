@@ -276,6 +276,25 @@ INTEL_CHAT_CONTEXT_API_TOKEN=
 
 Use `INTEL_CHAT_PROVIDER=hybrid` to fall back to local responses if n8n is unavailable.
 
+n8n exposes separate webhook URLs:
+
+- Test URL: `/webhook-test/...`; only works while the workflow is open and listening in n8n.
+- Production URL: `/webhook/...`; requires the workflow to be active.
+
+To verify ThreatFoundry can reach the configured webhook directly:
+
+```powershell
+python manage.py test_n8n_chat_webhook --allow-local-n8n
+```
+
+For a full assistant-path smoke test that requires n8n to answer:
+
+```powershell
+python manage.py smoke_test_analyst_chat --provider-mode n8n --require-n8n --allow-local-n8n
+```
+
+Webhook delivery diagnostics are written through the `intel.services.chatbot` logger. They include the target URL, method, test/production mode, sanitized payload preview, status code, response body preview, and timeout/connection/DNS/refused-connection failures.
+
 ## Security Notes
 
 - Keep `.env` local and uncommitted.

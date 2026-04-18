@@ -9,6 +9,7 @@ from django.urls import reverse
 
 from intel.access import ANALYST_GROUP
 from intel.models import IntelIOC
+from intel.services.chatbot import ChatbotServiceError, build_chat_response, build_response_guidance, get_n8n_webhook_config
 
 
 class AnalystChatViewTests(TestCase):
@@ -65,6 +66,15 @@ class AnalystChatViewTests(TestCase):
         self.assertContains(response, "analyst-chat-bootstrap")
         self.assertContains(response, 'id="assistant-popout-button"')
 
+    def test_analyst_chat_bootstrap_preserves_dashboard_filter_scope(self):
+        response = self.client.get(f"{reverse('intel:analyst_chat')}?malware_family=Cobalt+Strike")
+
+        self.assertEqual(response.status_code, 200)
+        bootstrap = response.context["chat_bootstrap"]
+        self.assertEqual(bootstrap["filters"]["malware_family"], "Cobalt Strike")
+        self.assertIn("malware_family=Cobalt+Strike", bootstrap["popout_url"])
+        self.assertContains(response, "Malware: Cobalt Strike")
+
     def test_analyst_chat_popout_page_reuses_chat_template(self):
         response = self.client.get(f"{reverse('intel:analyst_chat')}?popout=1")
 
@@ -74,6 +84,29 @@ class AnalystChatViewTests(TestCase):
         self.assertContains(response, "assistant-workspace-popout")
         self.assertContains(response, "Open Full Assistant")
         self.assertNotContains(response, 'id="assistant-popout-button"')
+
+    @override_settings(INTEL_CHAT_PROVIDER="local")
+    def test_analyst_chat_response_respects_malware_family_filter_scope(self):
+        IntelIOC.objects.create(
+            source_name="threatfox",
+            source_record_id="chat-cobalt-1",
+            value="cobalt.example",
+            value_type="domain",
+            threat_type="c2",
+            malware_family="Cobalt Strike",
+            confidence_level=90,
+        )
+
+        response = build_chat_response(
+            user_prompt="Give me the analyst view and leadership summary of the current scope.",
+            summary_mode="analyst",
+            filters_payload={"malware_family": "Cobalt Strike"},
+        )
+
+        self.assertEqual(response["provider"], "local-database")
+        self.assertEqual(response["context_meta"]["total_iocs"], 1)
+        self.assertEqual(response["supporting_data"]["cluster_breakdown"], [{"cluster": "Cobalt Strike", "count": 1}])
+        self.assertEqual(response["supporting_data"]["source_breakdown"][0]["count"], 1)
 
     @override_settings(INTEL_CHAT_PROVIDER="local")
     def test_analyst_chat_api_answers_specific_ioc_question(self):
@@ -123,8 +156,9 @@ class AnalystChatViewTests(TestCase):
         INTEL_CHAT_N8N_BEARER_TOKEN="token-value",
         INTEL_ALLOWED_WEBHOOK_HOSTS=["example.test"],
     )
+    @patch("intel.services.chatbot.log.info")
     @patch("intel.services.chatbot.requests.post")
-    def test_analyst_chat_api_uses_n8n_response_when_available(self, mock_post):
+    def test_analyst_chat_api_uses_n8n_response_when_available(self, mock_post, mock_log_info):
         response = Mock()
         response.raise_for_status.return_value = None
         response.json.return_value = {
@@ -143,6 +177,8 @@ class AnalystChatViewTests(TestCase):
                     "prompt": "Give me an executive summary.",
                     "summary_mode": "executive",
                     "dashboard_filters": {},
+                    "conversation_context": [{"role": "user", "content": "Focus on current dashboard scope."}],
+                    "chat_turn": 2,
                 }
             ),
             content_type="application/json",
@@ -156,12 +192,94 @@ class AnalystChatViewTests(TestCase):
         sent_payload = mock_post.call_args.kwargs["json"]
         self.assertEqual(sent_payload["workflow"]["name"], "threatfoundry_analyst_chat")
         self.assertEqual(sent_payload["analyst_question"], "Give me an executive summary.")
+        self.assertEqual(sent_payload["latest_user_question"], "Give me an executive summary.")
+        self.assertEqual(sent_payload["conversation_context"][0]["content"], "Focus on current dashboard scope.")
+        self.assertEqual(sent_payload["conversation_meta"]["turn_sequence"], 2)
+        self.assertTrue(sent_payload["conversation_meta"]["history_included"])
         self.assertIn("response_guidance", sent_payload)
         self.assertIn("summary", sent_payload["response_guidance"]["intents"])
+        self.assertEqual(sent_payload["response_guidance"]["depth"], "full_when_useful")
         self.assertIn("context", sent_payload)
         self.assertIn("ioc", sent_payload["context"])
         self.assertIn("focused_records", sent_payload["context"]["ioc"])
+        self.assertEqual(mock_post.call_args.kwargs["timeout"], 10)
+        self.assertEqual(mock_post.call_args.kwargs["headers"]["Authorization"], "Bearer token-value")
+        log_messages = [call.args[0] for call in mock_log_info.call_args_list]
+        self.assertTrue(any("webhook request" in message for message in log_messages))
+        self.assertTrue(any("webhook response" in message for message in log_messages))
         mock_post.assert_called_once()
+
+    @override_settings(
+        INTEL_CHAT_N8N_WEBHOOK_URL="https://example.test/webhook-test/threatfoundry-analyst-chat",
+        INTEL_CHAT_N8N_TIMEOUT=7,
+        INTEL_ALLOWED_WEBHOOK_HOSTS=["example.test"],
+    )
+    def test_n8n_webhook_config_identifies_test_webhook(self):
+        config = get_n8n_webhook_config()
+
+        self.assertEqual(config.method, "POST")
+        self.assertEqual(config.timeout, 7)
+        self.assertEqual(config.webhook_mode, "test")
+
+    @override_settings(
+        INTEL_CHAT_N8N_WEBHOOK_URL="https://<your-workspace>.app.n8n.cloud/webhook/soc-analyst-bot",
+        INTEL_CHAT_N8N_TIMEOUT=10,
+    )
+    def test_n8n_webhook_config_rejects_placeholder_url(self):
+        with self.assertRaisesMessage(ChatbotServiceError, "placeholder"):
+            get_n8n_webhook_config()
+
+    @override_settings(
+        INTEL_CHAT_PROVIDER="n8n",
+        INTEL_CHAT_N8N_WEBHOOK_URL="https://example.test/webhook/threatfoundry-analyst-chat",
+        INTEL_ALLOWED_WEBHOOK_HOSTS=["example.test"],
+    )
+    @patch("intel.services.chatbot.requests.post")
+    def test_follow_up_chat_message_triggers_fresh_n8n_request(self, mock_post):
+        first_response = Mock()
+        first_response.raise_for_status.return_value = None
+        first_response.json.return_value = {"answer": "first n8n response"}
+        second_response = Mock()
+        second_response.raise_for_status.return_value = None
+        second_response.json.return_value = {"answer": "follow-up n8n response"}
+        mock_post.side_effect = [first_response, second_response]
+
+        first_api_response = self.client.post(
+            reverse("intel:analyst_chat_api"),
+            data=json.dumps(
+                {
+                    "prompt": "Give me the analyst view.",
+                    "summary_mode": "analyst",
+                    "dashboard_filters": {},
+                    "chat_turn": 1,
+                }
+            ),
+            content_type="application/json",
+        )
+        second_api_response = self.client.post(
+            reverse("intel:analyst_chat_api"),
+            data=json.dumps(
+                {
+                    "prompt": "What should I investigate next?",
+                    "summary_mode": "analyst",
+                    "dashboard_filters": {},
+                    "conversation_context": [
+                        {"role": "user", "content": "Give me the analyst view."},
+                        {"role": "assistant", "content": first_api_response.json()["response"]["answer"]},
+                    ],
+                    "chat_turn": 2,
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(first_api_response.status_code, 200)
+        self.assertEqual(second_api_response.status_code, 200)
+        self.assertEqual(mock_post.call_count, 2)
+        second_payload = mock_post.call_args_list[1].kwargs["json"]
+        self.assertEqual(second_payload["analyst_question"], "What should I investigate next?")
+        self.assertEqual(second_payload["conversation_meta"]["turn_sequence"], 2)
+        self.assertEqual(len(second_payload["conversation_context"]), 2)
 
     @override_settings(
         INTEL_CHAT_PROVIDER="hybrid",
@@ -183,6 +301,7 @@ class AnalystChatViewTests(TestCase):
                     "summary_mode": "auto",
                     "dashboard_filters": {},
                     "conversation_context": [{"role": "user", "content": "Focus on AsyncRAT"}],
+                    "chat_turn": 2,
                 }
             ),
             content_type="application/json",
@@ -194,6 +313,14 @@ class AnalystChatViewTests(TestCase):
         self.assertEqual(payload["confidence"], "medium")
         sent_payload = mock_post.call_args.kwargs["json"]
         self.assertEqual(sent_payload["conversation_context"][0]["content"], "Focus on AsyncRAT")
+        self.assertEqual(sent_payload["conversation_meta"]["turn_sequence"], 2)
+
+    def test_response_guidance_allows_fuller_non_brief_answers(self):
+        guidance = build_response_guidance({"intents": ["summary", "prioritization"]}, "analyst")
+
+        self.assertFalse(guidance["allow_sparse_optional_fields"])
+        self.assertEqual(guidance["depth"], "full_when_useful")
+        self.assertTrue(any("complete analyst answer" in item for item in guidance["instructions"]))
 
     @override_settings(INTEL_CHAT_PROVIDER="local")
     def test_analyst_chat_local_answer_handles_open_hunt_question(self):

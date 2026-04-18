@@ -86,6 +86,7 @@ def analyst_chat_api_view(request):
             summary_mode=payload.get("summary_mode"),
             filters_payload=payload.get("dashboard_filters"),
             conversation_payload=payload.get("conversation_context"),
+            chat_turn=payload.get("chat_turn"),
         )
     except ChatbotServiceError:
         log.exception("Analyst chat response generation failed")
