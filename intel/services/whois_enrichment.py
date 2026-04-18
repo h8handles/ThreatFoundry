@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-import importlib.util
 import ipaddress
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
+
+from intel.services.whois_clients.geo_client import is_safe_public_ip, lookup_ip_geolocation, resolve_domain_ips, resolve_domain_to_ip
+from intel.services.whois_clients.whois_client import lookup_domain_whois
 
 try:
     import tldextract
@@ -14,30 +16,11 @@ except ImportError:  # pragma: no cover - depends on optional environment packag
     tldextract = None
 
 
-_WHOIS_TESTING_DIR = Path(__file__).resolve().parent.parent / "whois-testing"
 log = logging.getLogger(__name__)
 
-
-def _load_module(module_name: str, filename: str):
-    module_path = _WHOIS_TESTING_DIR / filename
-    if not module_path.exists():
-        raise RuntimeError(f"Required module not found: {module_path}")
-
-    spec = importlib.util.spec_from_file_location(module_name, module_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Unable to load module from: {module_path}")
-
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-_whois_client = _load_module("intel_whois_client", "whois_client.py")
-_geo_client = _load_module("intel_geo_client", "geo_client.py")
-
-lookup_domain_whois = _whois_client.lookup_domain_whois
-lookup_ip_geolocation = _geo_client.lookup_ip_geolocation
-resolve_domain_to_ip = _geo_client.resolve_domain_to_ip
+MAX_ENRICHMENT_RETRIES = 1
+GENERIC_WHOIS_ERROR = "WHOIS lookup failed."
+GENERIC_GEOLOCATION_ERROR = "Geolocation lookup failed."
 
 
 class InvalidWhoisTargetError(ValueError):
@@ -115,33 +98,49 @@ def _has_enrichment_data(payload: dict[str, Any]) -> bool:
 
 def parse_target(value: str | None) -> ParsedTarget:
     raw = str(value or "").strip()
-    log.debug("WHOIS parse_target: raw_input=%r", raw)
+    log.debug("WHOIS parse_target received input.")
     if not raw:
         raise InvalidWhoisTargetError("Target is required.")
 
     try:
         normalized_ip = str(ipaddress.ip_address(raw))
+        if not is_safe_public_ip(normalized_ip):
+            raise InvalidWhoisTargetError("Target is not allowed.")
         return ParsedTarget(raw=raw, normalized=normalized_ip, target_type="ip")
+    except InvalidWhoisTargetError:
+        raise
     except ValueError:
         pass
 
     normalized_domain = _normalize_domain(raw)
-    log.debug("WHOIS parse_target: normalized_domain=%r", normalized_domain)
+    log.debug("WHOIS parse_target normalized domain.")
     if not normalized_domain or "." not in normalized_domain:
         raise InvalidWhoisTargetError("Please provide a valid domain or IP address.")
     if "://" in normalized_domain or "/" in normalized_domain:
         raise InvalidWhoisTargetError("Please provide only a domain or IP address, not a URL.")
 
-    log.debug("WHOIS parse_target: no split/regex cleanup applied, lookup_target=%r", normalized_domain)
+    log.debug("WHOIS parse_target accepted domain target.")
     return ParsedTarget(raw=raw, normalized=normalized_domain, target_type="domain")
+
+
+def _call_with_retries(operation, *args):
+    for attempt in range(MAX_ENRICHMENT_RETRIES + 1):
+        try:
+            return operation(*args)
+        except Exception as exc:
+            if attempt >= MAX_ENRICHMENT_RETRIES:
+                raise
+            time.sleep(0.2)
+    raise RuntimeError("Enrichment retry failed.")  # pragma: no cover
 
 
 def _build_ip_result(target: ParsedTarget) -> dict[str, Any]:
     geolocation_payload: dict[str, Any] = {}
     try:
-        geolocation_payload = {"resolved_ip": target.normalized, **lookup_ip_geolocation(target.normalized)}
-    except Exception as exc:
-        geolocation_payload = {"error": str(exc)}
+        geolocation_payload = {"resolved_ip": target.normalized, **_call_with_retries(lookup_ip_geolocation, target.normalized)}
+    except Exception:
+        log.exception("WHOIS IP geolocation failed.")
+        geolocation_payload = {"error": GENERIC_GEOLOCATION_ERROR}
 
     has_geolocation = _has_enrichment_data(geolocation_payload)
 
@@ -187,14 +186,14 @@ def _build_domain_result(target: ParsedTarget) -> dict[str, Any]:
     )
 
     try:
-        whois_payload = lookup_domain_whois(target.normalized)
+        resolve_domain_ips(target.normalized)
+        whois_payload = _call_with_retries(lookup_domain_whois, target.normalized)
         whois_payload["domain_name"] = _normalize_domain(str(whois_payload.get("domain_name") or ""))
-    except Exception as exc:
+    except Exception:
         log.exception(
-            "WHOIS domain lookup exception: lookup_target=%r registered_domain_candidate=%r error=%s",
+            "WHOIS domain lookup exception: lookup_target=%r registered_domain_candidate=%r",
             target.normalized,
             parts.get("registered_domain"),
-            exc,
         )
         if registrable_domain and registrable_domain != target.normalized:
             log.info(
@@ -205,29 +204,28 @@ def _build_domain_result(target: ParsedTarget) -> dict[str, Any]:
                 },
             )
             try:
-                whois_payload = lookup_domain_whois(registrable_domain)
+                resolve_domain_ips(registrable_domain)
+                whois_payload = _call_with_retries(lookup_domain_whois, registrable_domain)
                 whois_payload["domain_name"] = _normalize_domain(str(whois_payload.get("domain_name") or ""))
                 whois_lookup_target = registrable_domain
-            except Exception as fallback_exc:
+            except Exception:
                 log.exception(
-                    "WHOIS fallback exception: lookup_target=%r error=%s",
+                    "WHOIS fallback exception: lookup_target=%r",
                     registrable_domain,
-                    fallback_exc,
                 )
-                whois_payload = {"error": str(fallback_exc)}
+                whois_payload = {"error": GENERIC_WHOIS_ERROR}
         else:
-            whois_payload = {"error": str(exc)}
+            whois_payload = {"error": GENERIC_WHOIS_ERROR}
 
     try:
         resolved_ip = resolve_domain_to_ip(target.normalized)
-        geolocation_payload = {"resolved_ip": resolved_ip, **lookup_ip_geolocation(resolved_ip)}
-    except Exception as exc:
+        geolocation_payload = {"resolved_ip": resolved_ip, **_call_with_retries(lookup_ip_geolocation, resolved_ip)}
+    except Exception:
         log.exception(
-            "WHOIS geolocation exception: lookup_target=%r error=%s",
+            "WHOIS geolocation exception: lookup_target=%r",
             target.normalized,
-            exc,
         )
-        geolocation_payload = {"error": str(exc)}
+        geolocation_payload = {"error": GENERIC_GEOLOCATION_ERROR}
 
     has_whois_data = _has_enrichment_data(whois_payload)
     has_geolocation = _has_enrichment_data(geolocation_payload)

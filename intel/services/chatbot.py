@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import ipaddress
+import logging
 import re
+import socket
 from collections import Counter
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 from django.conf import settings
@@ -36,6 +40,7 @@ SYSTEM_PROMPT = (
     "enrichment, prioritization, and executive or technical summaries. Do not pretend only one "
     "output mode is allowed. State uncertainty only when data is genuinely missing."
 )
+log = logging.getLogger(__name__)
 
 
 class ChatbotServiceError(RuntimeError):
@@ -341,10 +346,14 @@ def _call_n8n(payload: dict[str, Any]) -> dict[str, Any]:
     if bearer:
         headers["Authorization"] = f"Bearer {bearer}"
 
+    webhook_url = _validated_n8n_webhook_url()
+    n8n_payload = _build_n8n_payload(payload)
+    log.info("Sending analyst chat request to n8n webhook host=%s", urlparse(webhook_url).hostname)
+
     try:
         response = requests.post(
-            _n8n_webhook_url(),
-            json=payload,
+            webhook_url,
+            json=n8n_payload,
             headers=headers,
             timeout=int(getattr(settings, "INTEL_CHAT_N8N_TIMEOUT", 20)),
         )
@@ -564,6 +573,83 @@ def _calculate_suspicion_score(confidence_level: Any, observed_at: Any, enrichme
 
 def _n8n_webhook_url() -> str:
     return str(getattr(settings, "INTEL_CHAT_N8N_WEBHOOK_URL", "") or "").strip()
+
+
+def _is_blocked_webhook_host(hostname: str) -> bool:
+    host = str(hostname or "").strip().lower().rstrip(".")
+    if not host or host in {"localhost", "localhost.localdomain"}:
+        return True
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+
+    return any(
+        (
+            ip.is_loopback,
+            ip.is_private,
+            ip.is_link_local,
+            ip.is_multicast,
+            ip.is_reserved,
+            ip.is_unspecified,
+        )
+    )
+
+
+def _webhook_host_resolves_safely(hostname: str) -> bool:
+    original_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(5)
+    try:
+        addrinfo = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False
+    finally:
+        socket.setdefaulttimeout(original_timeout)
+
+    resolved_ips = {item[4][0] for item in addrinfo if item and item[4]}
+    return bool(resolved_ips) and all(not _is_blocked_webhook_host(ip) for ip in resolved_ips)
+
+
+def _validated_n8n_webhook_url() -> str:
+    url = _n8n_webhook_url()
+    parsed = urlparse(url)
+    hostname = str(parsed.hostname or "").lower()
+    allowed_hosts = {str(host).strip().lower() for host in getattr(settings, "INTEL_ALLOWED_WEBHOOK_HOSTS", []) if str(host).strip()}
+
+    if parsed.scheme != "https" or not hostname:
+        raise ChatbotServiceError("n8n webhook URL must use HTTPS.")
+    if _is_blocked_webhook_host(hostname):
+        raise ChatbotServiceError("n8n webhook host is not allowed.")
+    if not allowed_hosts or hostname not in allowed_hosts:
+        raise ChatbotServiceError("n8n webhook host is not in the allowlist.")
+    if not _webhook_host_resolves_safely(hostname):
+        raise ChatbotServiceError("n8n webhook host resolution is not allowed.")
+    return url
+
+
+def _build_n8n_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    sanitized = {
+        "user_query": payload.get("user_query"),
+        "summary_mode": payload.get("summary_mode"),
+        "dashboard_filters": payload.get("dashboard_filters"),
+        "ioc_context": payload.get("ioc_context"),
+    }
+    if getattr(settings, "INTEL_CHAT_INCLUDE_SYSTEM_PROMPT", False):
+        sanitized["system_prompt"] = payload.get("system_prompt")
+
+    context = sanitized.get("ioc_context")
+    if isinstance(context, dict):
+        context = dict(context)
+        context["top_suspicious"] = list(context.get("top_suspicious") or [])[:10]
+        context["noisy_records"] = list(context.get("noisy_records") or [])[:10]
+        lookup = context.get("lookup")
+        if isinstance(lookup, dict):
+            lookup = dict(lookup)
+            lookup["results"] = list(lookup.get("results") or [])[:5]
+            context["lookup"] = lookup
+        sanitized["ioc_context"] = context
+    return sanitized
 
 
 def _serialize_filters(filters: DashboardFilters) -> dict[str, Any]:

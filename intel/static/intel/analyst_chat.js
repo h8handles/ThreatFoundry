@@ -22,63 +22,74 @@
         statusEl.textContent = text;
     }
 
-    function escapeHtml(value) {
-        return String(value || "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
+    function appendTextElement(parent, tagName, className, text) {
+        const el = document.createElement(tagName);
+        if (className) {
+            el.className = className;
+        }
+        el.textContent = text == null ? "" : String(text);
+        parent.appendChild(el);
+        return el;
     }
 
     function renderList(title, items) {
         if (!items || !items.length) {
-            return "";
+            return null;
         }
-        return [
-            '<section class="assistant-response-section">',
-            `<h4>${escapeHtml(title)}</h4>`,
-            "<ul>",
-            items.map((item) => `<li>${escapeHtml(item)}</li>`).join(""),
-            "</ul>",
-            "</section>",
-        ].join("");
+        const section = document.createElement("section");
+        section.className = "assistant-response-section";
+        appendTextElement(section, "h4", "", title);
+        const list = document.createElement("ul");
+        items.forEach((item) => appendTextElement(list, "li", "", item));
+        section.appendChild(list);
+        return section;
     }
 
     function renderRecords(records) {
         if (!records || !records.length) {
-            return "";
+            return null;
         }
 
-        const rows = records
-            .map((record) => {
-                const valueHtml = record.detail_url
-                    ? `<a href="${escapeHtml(record.detail_url)}">${escapeHtml(record.value)}</a>`
-                    : escapeHtml(record.value);
-                return [
-                    "<tr>",
-                    `<td>${valueHtml}</td>`,
-                    `<td>${escapeHtml(record.value_type)}</td>`,
-                    `<td>${escapeHtml(record.source_name)}</td>`,
-                    `<td>${escapeHtml(record.confidence_level ?? "N/A")}</td>`,
-                    `<td>${escapeHtml(record.threat_type)}</td>`,
-                    `<td>${escapeHtml(record.malware_family)}</td>`,
-                    "</tr>",
-                ].join("");
-            })
-            .join("");
+        const section = document.createElement("section");
+        section.className = "assistant-response-section";
+        appendTextElement(section, "h4", "", "Supporting records");
 
-        return [
-            '<section class="assistant-response-section">',
-            "<h4>Supporting records</h4>",
-            '<div class="table-wrap assistant-table-wrap">',
-            '<table class="intel-table assistant-support-table">',
-            "<thead><tr><th>IOC</th><th>Type</th><th>Source</th><th>Confidence</th><th>Threat</th><th>Cluster</th></tr></thead>",
-            `<tbody>${rows}</tbody>`,
-            "</table>",
-            "</div>",
-            "</section>",
-        ].join("");
+        const tableWrap = document.createElement("div");
+        tableWrap.className = "table-wrap assistant-table-wrap";
+        const table = document.createElement("table");
+        table.className = "intel-table assistant-support-table";
+        const thead = document.createElement("thead");
+        const headerRow = document.createElement("tr");
+        ["IOC", "Type", "Source", "Confidence", "Threat", "Cluster"].forEach((heading) => {
+            appendTextElement(headerRow, "th", "", heading);
+        });
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement("tbody");
+        records.forEach((record) => {
+            const row = document.createElement("tr");
+            const valueCell = document.createElement("td");
+            if (record.detail_url && String(record.detail_url).startsWith("/")) {
+                const link = document.createElement("a");
+                link.href = record.detail_url;
+                link.textContent = record.value || "";
+                valueCell.appendChild(link);
+            } else {
+                valueCell.textContent = record.value || "";
+            }
+            row.appendChild(valueCell);
+            appendTextElement(row, "td", "", record.value_type);
+            appendTextElement(row, "td", "", record.source_name);
+            appendTextElement(row, "td", "", record.confidence_level ?? "N/A");
+            appendTextElement(row, "td", "", record.threat_type);
+            appendTextElement(row, "td", "", record.malware_family);
+            tbody.appendChild(row);
+        });
+        table.appendChild(tbody);
+        tableWrap.appendChild(table);
+        section.appendChild(tableWrap);
+        return section;
     }
 
     function renderMessage(role, payload) {
@@ -86,10 +97,8 @@
         wrapper.className = role === "user" ? "assistant-message assistant-message-user" : "assistant-message";
 
         if (role === "user") {
-            wrapper.innerHTML = [
-                '<div class="assistant-message-heading">You</div>',
-                `<p class="assistant-message-text">${escapeHtml(payload)}</p>`,
-            ].join("");
+            appendTextElement(wrapper, "div", "assistant-message-heading", "You");
+            appendTextElement(wrapper, "p", "assistant-message-text", payload);
             thread.appendChild(wrapper);
             thread.scrollTop = thread.scrollHeight;
             return;
@@ -116,16 +125,27 @@
             );
         }
 
-        wrapper.innerHTML = [
-            '<div class="assistant-message-heading">Analyst Chat</div>',
-            `<div class="assistant-message-meta">Mode: ${escapeHtml(payload.summary_mode)} | Provider: ${escapeHtml(payload.provider)} | Source of truth: ${escapeHtml(payload.source_of_truth)}</div>`,
-            `<p class="assistant-message-text">${escapeHtml(payload.answer)}</p>`,
-            renderList("Key findings", payload.key_findings),
-            renderList("Recommended actions", payload.recommended_actions),
-            renderList("Uncertainty", payload.uncertainty),
-            supportLines.length ? `<p class="assistant-support-copy">${escapeHtml(supportLines.join(" | "))}</p>` : "",
-            renderRecords(payload.supporting_records),
-        ].join("");
+        appendTextElement(wrapper, "div", "assistant-message-heading", "Analyst Chat");
+        appendTextElement(
+            wrapper,
+            "div",
+            "assistant-message-meta",
+            `Mode: ${payload.summary_mode || ""} | Provider: ${payload.provider || ""} | Source of truth: ${payload.source_of_truth || ""}`
+        );
+        appendTextElement(wrapper, "p", "assistant-message-text", payload.answer);
+
+        [renderList("Key findings", payload.key_findings), renderList("Recommended actions", payload.recommended_actions), renderList("Uncertainty", payload.uncertainty)].forEach((node) => {
+            if (node) {
+                wrapper.appendChild(node);
+            }
+        });
+        if (supportLines.length) {
+            appendTextElement(wrapper, "p", "assistant-support-copy", supportLines.join(" | "));
+        }
+        const recordsNode = renderRecords(payload.supporting_records);
+        if (recordsNode) {
+            wrapper.appendChild(recordsNode);
+        }
 
         thread.appendChild(wrapper);
         thread.scrollTop = thread.scrollHeight;

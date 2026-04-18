@@ -7,7 +7,7 @@ import markdown
 from django.conf import settings
 from django.http import Http404, HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.utils.http import url_has_allowed_host_and_scheme
+from django.urls import Resolver404, resolve
 from django.views.decorators.http import require_POST
 
 from intel.access import VIEWER_GROUP, role_required
@@ -155,8 +155,12 @@ def documentation_view(request, doc_name=None):
     if not docs_dir.exists() or not docs_dir.is_dir():
         raise Http404("Documentation directory not found.")
 
+    docs_by_name = {
+        doc_path.name: doc_path
+        for doc_path in docs_dir.glob("*.md")
+    }
     doc_files = sorted(
-        [doc_path.name for doc_path in docs_dir.glob("*.md")],
+        docs_by_name,
         key=str.casefold,
     )
     if not doc_files:
@@ -168,11 +172,11 @@ def documentation_view(request, doc_name=None):
     if doc_name not in doc_files:
         raise Http404("Documentation page not found.")
 
-    doc_path = (docs_dir / doc_name).resolve()
+    doc_path = docs_by_name[doc_name].resolve()
     try:
         doc_path.relative_to(docs_dir)
     except ValueError as exc:
-        log.warning("Rejected documentation path outside docs directory: %r", doc_name)
+        log.warning("Rejected documentation path outside docs directory.")
         raise Http404("Documentation page not found.") from exc
 
     try:
@@ -180,7 +184,7 @@ def documentation_view(request, doc_name=None):
     except FileNotFoundError as exc:
         raise Http404("Documentation page not found.") from exc
     except OSError as exc:
-        log.exception("Documentation read failed for %s", doc_path)
+        log.exception("Documentation read failed.")
         raise Http404("Documentation page not found.") from exc
 
     html_content = markdown.markdown(
@@ -205,14 +209,23 @@ def set_time_display_view(request):
     request.session[TIME_DISPLAY_SESSION_KEY] = get_time_display_definition(selected).key
 
     redirect_to = request.POST.get("next")
-    allowed_hosts = {request.get_host()}
-    allowed_hosts.update(host for host in settings.ALLOWED_HOSTS if host and host != "*")
-    if redirect_to and url_has_allowed_host_and_scheme(
-        url=redirect_to,
-        allowed_hosts=allowed_hosts,
-        require_https=request.is_secure(),
-    ):
-        return redirect(redirect_to)
+    if redirect_to and redirect_to.startswith("/") and not redirect_to.startswith("//"):
+        try:
+            match = resolve(redirect_to.split("?", 1)[0].split("#", 1)[0])
+        except Resolver404:
+            match = None
+        allowed_redirects = {
+            "dashboard",
+            "ioc_detail",
+            "ioc_blade_detail",
+            "malware_family",
+            "documentation",
+            "documentation_doc",
+            "analyst_chat",
+            "generate_exec_report",
+        }
+        if match and match.app_name == "intel" and match.url_name in allowed_redirects:
+            return redirect(f"intel:{match.url_name}", *match.args, **match.kwargs)
     return redirect("intel:dashboard")
 
 def _build_whois_blade_context(record: IntelIOC) -> dict:

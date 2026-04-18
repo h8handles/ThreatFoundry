@@ -459,6 +459,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     applyConfidenceChipStyles();
 
+    document.querySelectorAll("[data-page-size-select]").forEach((select) => {
+        select.addEventListener("change", () => {
+            if (select.form) {
+                select.form.submit();
+            }
+        });
+    });
+
     document.querySelectorAll(".table-row-link").forEach((row) => {
         row.tabIndex = 0;
         row.setAttribute("role", "link");

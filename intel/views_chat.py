@@ -1,16 +1,16 @@
 import json
 import logging
-import secrets
+import time
 
+from django.conf import settings
+from django.contrib.auth.hashers import check_password
 from django.http import JsonResponse
 from django.shortcuts import render
-from django.conf import settings
 from django.views.decorators.http import require_POST
 
 from intel.access import ANALYST_GROUP, api_role_required, role_required, user_has_minimum_role
 from intel.services.chatbot import (
     ChatbotServiceError,
-    SYSTEM_PROMPT,
     build_chat_bootstrap,
     build_chat_context,
     build_chat_response,
@@ -20,6 +20,29 @@ from intel.services.chatbot import (
 from intel.services.dashboard import parse_dashboard_filters
 
 log = logging.getLogger(__name__)
+
+_RATE_LIMIT_WINDOW_SECONDS = 60
+_CHAT_RATE_LIMIT_MAX_REQUESTS = 20
+_CONTEXT_RATE_LIMIT_MAX_REQUESTS = 30
+_CHAT_RATE_LIMIT: dict[str, list[float]] = {}
+_CONTEXT_RATE_LIMIT: dict[str, list[float]] = {}
+
+
+def _rate_limit_key(request) -> str:
+    user_part = f"user:{request.user.pk}" if request.user.is_authenticated else "anon"
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    ip_part = forwarded_for.split(",", 1)[0].strip() or request.META.get("REMOTE_ADDR", "")
+    return f"{user_part}:{ip_part}"
+
+
+def _is_rate_limited(request, *, bucket: dict[str, list[float]], limit: int) -> bool:
+    now = time.time()
+    key = _rate_limit_key(request)
+    bucket[key] = [ts for ts in bucket.get(key, []) if now - ts < _RATE_LIMIT_WINDOW_SECONDS]
+    if len(bucket[key]) >= limit:
+        return True
+    bucket[key].append(now)
+    return False
 
 
 @role_required(ANALYST_GROUP)
@@ -35,6 +58,9 @@ def analyst_chat_view(request):
 @require_POST
 @api_role_required(ANALYST_GROUP)
 def analyst_chat_api_view(request):
+    if _is_rate_limited(request, bucket=_CHAT_RATE_LIMIT, limit=_CHAT_RATE_LIMIT_MAX_REQUESTS):
+        return JsonResponse({"ok": False, "error": "Too many chat requests."}, status=429)
+
     try:
         payload = json.loads(request.body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -67,8 +93,8 @@ def _has_context_api_access(request) -> bool:
     if request.user.is_authenticated and user_has_minimum_role(request.user, ANALYST_GROUP):
         return True
 
-    configured_token = str(getattr(settings, "INTEL_CHAT_CONTEXT_API_TOKEN", "") or "").strip()
-    if not configured_token:
+    configured_token_hash = str(getattr(settings, "INTEL_CHAT_CONTEXT_API_TOKEN_HASH", "") or "").strip().lower()
+    if not configured_token_hash:
         return False
 
     header_token = str(request.headers.get("X-ThreatFoundry-Service-Token") or "").strip()
@@ -77,11 +103,14 @@ def _has_context_api_access(request) -> bool:
         if auth_header.lower().startswith("bearer "):
             header_token = auth_header[7:].strip()
 
-    return bool(header_token) and secrets.compare_digest(header_token, configured_token)
+    return bool(header_token) and check_password(header_token, configured_token_hash)
 
 
 @require_POST
 def analyst_chat_context_api_view(request):
+    if _is_rate_limited(request, bucket=_CONTEXT_RATE_LIMIT, limit=_CONTEXT_RATE_LIMIT_MAX_REQUESTS):
+        return JsonResponse({"ok": False, "error": "Too many context requests."}, status=429)
+
     if not _has_context_api_access(request):
         return JsonResponse(
             {
@@ -115,7 +144,6 @@ def analyst_chat_context_api_view(request):
             "ok": True,
             "user_query": prompt,
             "summary_mode": summary_mode,
-            "system_prompt": SYSTEM_PROMPT,
             "dashboard_filters": {
                 "start_date": filters.start_date.isoformat() if filters.start_date else "",
                 "end_date": filters.end_date.isoformat() if filters.end_date else "",

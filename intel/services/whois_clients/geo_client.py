@@ -84,8 +84,7 @@ def lookup_ip_geolocation(ip_address: str) -> dict[str, Any]:
         raise RuntimeError("Geolocation API returned an unexpected response format.")
 
     if payload.get("status") != "success":
-        message = payload.get("message", "unknown error")
-        raise RuntimeError(f"Geolocation API lookup failed: {message}")
+        raise RuntimeError("Geolocation API lookup failed.")
 
     return {
         "city": payload.get("city"),

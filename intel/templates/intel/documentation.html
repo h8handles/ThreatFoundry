@@ -89,7 +89,19 @@
                     throw new Error("Failed to load documentation page.");
                 }
 
-                contentPanel.innerHTML = await response.text();
+                const parser = new DOMParser();
+                const parsed = parser.parseFromString(await response.text(), "text/html");
+                parsed.querySelectorAll("script, iframe, object, embed").forEach((el) => el.remove());
+                parsed.querySelectorAll("*").forEach((el) => {
+                    Array.from(el.attributes).forEach((attr) => {
+                        const name = attr.name.toLowerCase();
+                        const value = attr.value.trim().toLowerCase();
+                        if (name.startsWith("on") || (["href", "src"].includes(name) && /^(javascript|data|vbscript):/.test(value))) {
+                            el.removeAttribute(attr.name);
+                        }
+                    });
+                });
+                contentPanel.replaceChildren(...Array.from(parsed.body.childNodes));
 
                 document.querySelectorAll("#doc-nav .doc-link").forEach((el) => el.classList.remove("active"));
                 const activeLink = document.querySelector(`#doc-nav .doc-link[href="${url}"]`);

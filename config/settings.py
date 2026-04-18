@@ -100,6 +100,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "config.security_headers.ContentSecurityPolicyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -178,7 +179,26 @@ INTEL_CHAT_N8N_WEBHOOK_URL = os.getenv("INTEL_CHAT_N8N_WEBHOOK_URL", "")
 INTEL_CHAT_N8N_TIMEOUT = int(os.getenv("INTEL_CHAT_N8N_TIMEOUT", "20"))
 INTEL_CHAT_N8N_BEARER_TOKEN = os.getenv("INTEL_CHAT_N8N_BEARER_TOKEN", "")
 INTEL_CHAT_CONTEXT_API_TOKEN = os.getenv("INTEL_CHAT_CONTEXT_API_TOKEN", "")
+INTEL_CHAT_CONTEXT_API_TOKEN_HASH = os.getenv("INTEL_CHAT_CONTEXT_API_TOKEN_HASH", "")
+INTEL_ALLOWED_WEBHOOK_HOSTS = _parse_csv_env(os.getenv("INTEL_ALLOWED_WEBHOOK_HOSTS", ""))
+INTEL_CHAT_INCLUDE_SYSTEM_PROMPT = os.getenv("INTEL_CHAT_INCLUDE_SYSTEM_PROMPT", "false").lower() == "true"
+ENABLE_PUBLIC_REGISTRATION = os.getenv("ENABLE_PUBLIC_REGISTRATION", "false").lower() == "true"
 ENABLE_EXPERIMENTAL_HUNTS = os.getenv("ENABLE_EXPERIMENTAL_HUNTS", "false").lower() == "true"
+
+if not DEBUG:
+    SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true"
+    CSRF_COOKIE_SECURE = os.getenv("CSRF_COOKIE_SECURE", "true").lower() == "true"
+    SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", "true").lower() == "true"
+    SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "31536000"))
+    SECURE_CONTENT_TYPE_NOSNIFF = os.getenv("SECURE_CONTENT_TYPE_NOSNIFF", "true").lower() == "true"
+    SECURE_REFERRER_POLICY = os.getenv("SECURE_REFERRER_POLICY", "same-origin")
+    CONTENT_SECURITY_POLICY = {
+        "DIRECTIVES": {
+            "default-src": ("'self'",),
+            "script-src": ("'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"),
+            "style-src": ("'self'", "'unsafe-inline'"),
+        }
+    }
 
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
@@ -9,15 +10,36 @@ from intel.services.whois_enrichment import InvalidWhoisTargetError, enrich_targ
 
 log = logging.getLogger(__name__)
 
+_RATE_LIMIT_WINDOW_SECONDS = 60
+_RATE_LIMIT_MAX_REQUESTS = 20
+_WHOIS_RATE_LIMIT: dict[str, list[float]] = {}
+
+
+def _rate_limit_key(request) -> str:
+    user_part = f"user:{request.user.pk}" if request.user.is_authenticated else "anon"
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    ip_part = forwarded_for.split(",", 1)[0].strip() or request.META.get("REMOTE_ADDR", "")
+    return f"{user_part}:{ip_part}"
+
+
+def _is_rate_limited(request, *, bucket: dict[str, list[float]], limit: int = _RATE_LIMIT_MAX_REQUESTS) -> bool:
+    now = time.time()
+    key = _rate_limit_key(request)
+    bucket[key] = [ts for ts in bucket.get(key, []) if now - ts < _RATE_LIMIT_WINDOW_SECONDS]
+    if len(bucket[key]) >= limit:
+        return True
+    bucket[key].append(now)
+    return False
+
 
 def lookup_whois_target(target):
     try:
         result = enrich_target(target)
     except InvalidWhoisTargetError as exc:
-        log.warning("WHOIS lookup invalid target: %r (%s)", target, exc)
+        log.warning("WHOIS lookup invalid target.")
         return {"ok": False, "error": "Invalid lookup target.", "status": 400}
-    except Exception as exc:
-        log.exception("WHOIS lookup failed: target=%r error=%s", target, exc)
+    except Exception:
+        log.exception("WHOIS lookup failed.")
         return {"ok": False, "error": "Lookup failed.", "status": 502}
 
     has_whois_data = bool(result.get("summary", {}).get("has_whois_data"))
@@ -36,6 +58,9 @@ def lookup_whois_target(target):
 @require_http_methods(["GET", "POST"])
 @api_role_required(VIEWER_GROUP)
 def whois_lookup_api_view(request):
+    if _is_rate_limited(request, bucket=_WHOIS_RATE_LIMIT):
+        return JsonResponse({"ok": False, "error": "Too many lookup requests."}, status=429)
+
     if request.method == "GET":
         target = request.GET.get("target") or request.GET.get("value")
     else:
