@@ -1,12 +1,13 @@
-# IOC Workbench Documentation
+# ThreatFoundry Documentation
 
-This documentation set describes the current implementation of IOC Workbench in this repository.
+This documentation set describes the current implementation of ThreatFoundry in this repository.
 
 ## Documentation Map
 
 - [Application Summary](application-summary.md): Product overview, scope, and quick start.
 - [Feature Reference](feature-reference.md): End-to-end feature inventory for UI, CLI, ingestion, enrichment, and run tracking.
 - [Architecture Reference](architecture-reference.md): Data model, service boundaries, request/data flow, and provider integration internals.
+- [Ticket Workspace](ticket-workspace.md): Analyst ticketing, notes, workspace tabs, popout behavior, and security notes.
 - [Operations Runbook](operations-runbook.md): Day-to-day commands, refresh scheduling, environment configuration, and troubleshooting.
 
 ## What Is Included
@@ -15,6 +16,7 @@ This documentation set describes the current implementation of IOC Workbench in 
 - IOC enrichment: VirusTotal.
 - Provider capability model and availability/status checks.
 - Analyst web UI: dashboard, IOC detail, IOC blade detail, malware directory/family pages.
+- Analyst ticket workspace with notes, tabs, and popout detail views.
 - Documentation wiki route with dynamic markdown page loading.
 - Time-display preference (local 12-hour, local 24-hour, UTC 24-hour).
 - Operational run tracking via `ProviderRun`, `IngestionRun`, and `ProviderRunDetail`.

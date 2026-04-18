@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-import fcntl
 import os
 from contextlib import contextmanager
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows does not provide fcntl
+    fcntl = None
 
 from django.conf import settings
 from django.core.management import call_command
@@ -140,6 +144,11 @@ class Command(BaseCommand):
     @contextmanager
     def _try_lock(self, lock_path: Path, writer: TeeWriter):
         lock_path.parent.mkdir(parents=True, exist_ok=True)
+        if fcntl is None:
+            with self._try_windows_lock(lock_path, writer) as acquired:
+                yield acquired
+            return
+
         with lock_path.open("a+", encoding="utf-8") as lock_file:
             try:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -170,6 +179,39 @@ class Command(BaseCommand):
                 )
                 lock_file.flush()
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+    @contextmanager
+    def _try_windows_lock(self, lock_path: Path, writer: TeeWriter):
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_handle = None
+        try:
+            lock_handle = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            active_holder = ""
+            try:
+                active_holder = lock_path.read_text(encoding="utf-8").strip()
+            except OSError:
+                active_holder = ""
+            message = f"[{timezone.now().isoformat()}] scheduled refresh skipped; another run holds {lock_path}"
+            if active_holder:
+                message = f"{message} ({active_holder})"
+            self._write_log_line(writer, message)
+            yield False
+            return
+
+        try:
+            with os.fdopen(lock_handle, "w", encoding="utf-8") as lock_file:
+                lock_handle = None
+                lock_file.write(f"pid={os.getpid()} started_at={timezone.now().isoformat()}")
+                lock_file.flush()
+            yield True
+        finally:
+            if lock_handle is not None:
+                os.close(lock_handle)
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                pass
 
     def _write_log_line(self, writer: TeeWriter, message: str) -> None:
         writer.write(f"{message}\n")

@@ -2,7 +2,7 @@
 
 ## 1) High-Level Architecture
 
-IOC Workbench is a single Django project (`config`) with one domain app (`intel`) containing model, service, view, template, static, and command layers.
+ThreatFoundry is a single Django project (`config`) with one domain app (`intel`) containing model, service, view, template, static, and command layers.
 
 ### Layered Breakdown
 
@@ -14,7 +14,7 @@ IOC Workbench is a single Django project (`config`) with one domain app (`intel`
 - Service layer:
   - `intel/services/*.py`
 - Interface layer:
-  - Web: `intel/views.py`, templates, static assets
+  - Web: `intel/views.py`, `intel/views_chat.py`, `intel/views_tickets.py`, templates, static assets
   - CLI: `intel/management/commands/*.py`
 
 ## 2) Data Model
@@ -76,6 +76,38 @@ Purpose:
 Relationship:
 
 - `ProviderRunDetail.ingestion_run -> IngestionRun` (foreign key).
+
+## 2.4 `Ticket`
+
+Purpose:
+
+- Persist analyst-created investigation tickets.
+
+Notable fields:
+
+- `title`
+- `description`
+- `status`
+- `priority`
+- `created_by`
+- `assigned_to`
+- `created_at`
+- `updated_at`
+
+Ordering and indexes favor queue-style views by status, priority, assignee, and recent updates.
+
+## 2.5 `TicketNote`
+
+Purpose:
+
+- Persist chronological analyst notes attached to tickets.
+
+Relationship:
+
+- `TicketNote.ticket -> Ticket`
+- `TicketNote.author -> AUTH_USER_MODEL`
+
+Notes are ordered by creation time and ID so the activity feed remains stable.
 
 ## 3) Service Boundaries
 
@@ -166,6 +198,16 @@ Responsibilities:
 3. Full page or partial content is rendered depending on AJAX header.
 4. Frontend JS updates page content and browser history.
 
+### 4.4 Ticket Workspace Request
+
+1. `ticket_list_view` enforces analyst access and loads the ticket queue.
+2. POSTs to `/tickets/` create a ticket through `TicketCreateForm`.
+3. `ticket_detail_view` loads a ticket and processes update submissions through `TicketUpdateForm`.
+4. `ticket_note_create_view` accepts POST-only note submissions through `TicketNoteForm`.
+5. `ticket_detail.html` renders the ticket record workspace, while `tickets.js` handles UI-only behavior such as tabs, collapsible panels, auto-growing textareas, and safe popout opening.
+
+Ticket routes reuse the authenticated Django session and do not move note content, tokens, prompts, or privileged state into URLs or browser storage.
+
 ## 5) CLI Command Architecture
 
 Each management command is a thin orchestration layer that delegates business logic to services.
@@ -233,3 +275,4 @@ Environment loading:
 - `dashboard.py` carries significant aggregation/presentation logic in one module.
 - Server-rendered UI keeps deployment simple and reduces API overhead.
 - Scheduling is externalized, keeping app runtime simpler at current project stage.
+- Ticket workspace tabs are intentionally client-side UI state. The source of truth for tickets and notes remains the database.

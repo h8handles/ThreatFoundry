@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from intel.services.whois_clients.geo_client import is_safe_public_ip, lookup_ip_geolocation, resolve_domain_ips, resolve_domain_to_ip
+from intel.services.whois_clients.geo_client import is_safe_public_ip, lookup_ip_geolocation, resolve_domain_to_ip
 from intel.services.whois_clients.whois_client import lookup_domain_whois
 
 try:
@@ -94,6 +94,11 @@ def _has_enrichment_data(payload: dict[str, Any]) -> bool:
     if not isinstance(payload, dict) or "error" in payload:
         return False
     return any(value not in (None, "", [], {}) for value in payload.values())
+
+
+def _normalize_whois_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    payload["domain_name"] = _normalize_domain(str(payload.get("domain_name") or ""))
+    return payload
 
 
 def parse_target(value: str | None) -> ParsedTarget:
@@ -186,14 +191,17 @@ def _build_domain_result(target: ParsedTarget) -> dict[str, Any]:
     )
 
     try:
-        resolve_domain_ips(target.normalized)
-        whois_payload = _call_with_retries(lookup_domain_whois, target.normalized)
-        whois_payload["domain_name"] = _normalize_domain(str(whois_payload.get("domain_name") or ""))
-    except Exception:
-        log.exception(
-            "WHOIS domain lookup exception: lookup_target=%r registered_domain_candidate=%r",
+        if registrable_domain and registrable_domain != target.normalized:
+            whois_payload = lookup_domain_whois(target.normalized)
+        else:
+            whois_payload = _call_with_retries(lookup_domain_whois, target.normalized)
+        whois_payload = _normalize_whois_payload(whois_payload)
+    except Exception as exc:
+        log.warning(
+            "WHOIS domain lookup failed: lookup_target=%r registered_domain_candidate=%r error=%s",
             target.normalized,
             parts.get("registered_domain"),
+            exc,
         )
         if registrable_domain and registrable_domain != target.normalized:
             log.info(
@@ -204,14 +212,14 @@ def _build_domain_result(target: ParsedTarget) -> dict[str, Any]:
                 },
             )
             try:
-                resolve_domain_ips(registrable_domain)
                 whois_payload = _call_with_retries(lookup_domain_whois, registrable_domain)
-                whois_payload["domain_name"] = _normalize_domain(str(whois_payload.get("domain_name") or ""))
+                whois_payload = _normalize_whois_payload(whois_payload)
                 whois_lookup_target = registrable_domain
-            except Exception:
-                log.exception(
-                    "WHOIS fallback exception: lookup_target=%r",
+            except Exception as exc:
+                log.warning(
+                    "WHOIS fallback lookup failed: lookup_target=%r error=%s",
                     registrable_domain,
+                    exc,
                 )
                 whois_payload = {"error": GENERIC_WHOIS_ERROR}
         else:
@@ -220,10 +228,11 @@ def _build_domain_result(target: ParsedTarget) -> dict[str, Any]:
     try:
         resolved_ip = resolve_domain_to_ip(target.normalized)
         geolocation_payload = {"resolved_ip": resolved_ip, **_call_with_retries(lookup_ip_geolocation, resolved_ip)}
-    except Exception:
-        log.exception(
-            "WHOIS geolocation exception: lookup_target=%r",
+    except Exception as exc:
+        log.warning(
+            "WHOIS geolocation lookup failed: lookup_target=%r error=%s",
             target.normalized,
+            exc,
         )
         geolocation_payload = {"error": GENERIC_GEOLOCATION_ERROR}
 

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from intel.models import IngestionRun, IntelIOC, ProviderRun, ProviderRunDetail
+from intel.models import IngestionRun, IntelIOC, ProviderRun, ProviderRunDetail, Ticket, TicketNote
 
 
 @admin.register(IntelIOC)
@@ -141,3 +141,25 @@ class ProviderRunDetailAdmin(admin.ModelAdmin):
         "error_summary",
         "details",
     )
+
+
+class TicketNoteInline(admin.TabularInline):
+    model = TicketNote
+    extra = 0
+    fields = ("body", "author", "created_at")
+    readonly_fields = ("created_at",)
+
+
+@admin.register(Ticket)
+class TicketAdmin(admin.ModelAdmin):
+    list_display = ("title", "status", "priority", "assigned_to", "created_by", "updated_at")
+    list_filter = ("status", "priority", "assigned_to")
+    search_fields = ("title", "description", "notes__body")
+    inlines = [TicketNoteInline]
+
+
+@admin.register(TicketNote)
+class TicketNoteAdmin(admin.ModelAdmin):
+    list_display = ("ticket", "author", "created_at")
+    list_filter = ("author",)
+    search_fields = ("body", "ticket__title")

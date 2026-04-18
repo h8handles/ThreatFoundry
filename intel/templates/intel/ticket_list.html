@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}ThreatFoundry | Tickets{% endblock %}
+{% block page_kicker %}Ticket Workspace{% endblock %}
+{% block page_heading %}Analyst Tickets{% endblock %}
+{% block page_subtitle %}Create and organize investigation tickets with analyst notes and ownership context.{% endblock %}
+
+{% block page_header_actions %}
+    {% if is_popout %}
+        <a class="secondary-button" href="{% url 'intel:ticket_list' %}">Open Full Tickets</a>
+    {% else %}
+        <button class="secondary-button ticket-popout-button" type="button" data-ticket-popout-url="{{ popout_url }}">Pop Out Tickets</button>
+        <a class="secondary-button" href="{% url 'intel:dashboard' %}">Back To Dashboard</a>
+    {% endif %}
+{% endblock %}
+
+{% block extra_head %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'intel/tickets.css' %}">
+{% endblock %}
+
+{% block content %}
+<section class="ticket-page ticket-command-page{% if is_popout %} ticket-page-popout{% endif %}">
+<section class="ticket-workspace-hero ticket-command-hero">
+    <div class="ticket-hero-copy">
+        <p class="eyebrow">Analyst Workspace</p>
+        <h2>Ticket Queue</h2>
+        <p class="muted">Track investigations, keep active tickets pinned, and capture notes without leaving the workspace.</p>
+    </div>
+    <div class="ticket-hero-stats">
+        <article class="ticket-mini-stat">
+            <span>Visible Tickets</span>
+            <strong>{{ tickets|length }}</strong>
+        </article>
+        <article class="ticket-mini-stat">
+            <span>Filter</span>
+            <strong>{{ selected_status|default:"All" }}</strong>
+        </article>
+    </div>
+</section>
+
+<section
+    class="panel ticket-tabs-panel ticket-tab-dock"
+    data-ticket-tabs
+    data-ticket-collapsible
+    data-ticket-collapse-key="workspace-tabs"
+    data-current-ticket-id=""
+    data-current-ticket-title=""
+    data-popout="{% if is_popout %}1{% else %}0{% endif %}"
+>
+    <header class="ticket-tabs-header">
+        <div>
+            <p class="eyebrow">Workspace Tabs</p>
+            <h2>Open Tickets</h2>
+        </div>
+        <div class="ticket-panel-actions">
+            <p class="muted">Open tickets stay available across page reloads.</p>
+            <button class="ticket-panel-toggle" type="button" aria-expanded="true">Collapse</button>
+        </div>
+    </header>
+    <div class="ticket-panel-body">
+        <div class="ticket-tab-bar" id="ticket-tab-bar"></div>
+    </div>
+</section>
+
+<section class="ticket-workspace ticket-command-grid{% if is_popout %} ticket-workspace-popout{% endif %}">
+    <section class="panel ticket-main-panel ticket-command-panel ticket-queue-panel" data-ticket-collapsible data-ticket-collapse-key="ticket-queue">
+        <header class="section-header">
+            <div>
+                <p class="eyebrow">Queue</p>
+                <h2>Investigation Tickets</h2>
+            </div>
+            <div class="ticket-panel-actions">
+                <form class="ticket-filter-form" method="get">
+                    {% if is_popout %}
+                        <input type="hidden" name="popout" value="1">
+                    {% endif %}
+                    <div class="ticket-filter-control">
+                        <label for="ticket-status-filter">Status</label>
+                        <select id="ticket-status-filter" name="status" onchange="this.form.submit()">
+                            <option value="">All</option>
+                            {% for value, label in status_choices %}
+                                <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </form>
+                <button class="ticket-panel-toggle" type="button" aria-expanded="true">Collapse</button>
+            </div>
+        </header>
+
+        <div class="ticket-panel-body">
+            <div class="ticket-list">
+                {% for ticket in tickets %}
+                    <article class="ticket-list-item ticket-queue-card ticket-priority-{{ ticket.priority }} ticket-status-{{ ticket.status }}">
+                        <div class="ticket-card-main">
+                            <p class="eyebrow ticket-card-kicker">{{ ticket.get_priority_display }} Priority</p>
+                            <h3>
+                                <a
+                                    href="{% url 'intel:ticket_detail' ticket.pk %}{% if is_popout %}?popout=1{% endif %}"
+                                    data-ticket-open-link
+                                    data-ticket-id="{{ ticket.pk }}"
+                                    data-ticket-title="{{ ticket.title }}"
+                                    data-ticket-url="{% url 'intel:ticket_detail' ticket.pk %}"
+                            >{{ ticket.title }}</a>
+                        </h3>
+                        <p class="muted ticket-description-preview">{{ ticket.description|default:"No description yet." }}</p>
+                    </div>
+                    <div class="ticket-list-meta ticket-card-meta">
+                        <span class="chip">{{ ticket.get_status_display }}</span>
+                        <span class="chip">{{ ticket.note_count }} notes</span>
+                        <span class="muted">Owner: {{ ticket.assigned_to.username|default:"Unassigned" }}</span>
+                        </div>
+                    </article>
+                {% empty %}
+                    <div class="context-block ticket-empty-state">
+                        <p class="muted">No tickets match the current filter.</p>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+
+    <aside class="panel ticket-create-panel ticket-command-panel ticket-create-rail" data-ticket-collapsible data-ticket-collapse-key="ticket-create">
+        <header class="section-header">
+            <div>
+                <p class="eyebrow">New Ticket</p>
+                <h2>Create Ticket</h2>
+            </div>
+            <button class="ticket-panel-toggle" type="button" aria-expanded="true">Collapse</button>
+        </header>
+        <div class="ticket-panel-body">
+            <form class="ticket-form" method="post">
+                {% csrf_token %}
+                {{ create_form.non_field_errors }}
+                <div class="ticket-form-field ticket-form-field-full">
+                    <label for="{{ create_form.title.id_for_label }}">Title</label>
+                    {{ create_form.title.errors }}
+                    {{ create_form.title }}
+                </div>
+
+                <div class="ticket-form-field ticket-form-field-full">
+                    <label for="{{ create_form.description.id_for_label }}">Description</label>
+                    {{ create_form.description.errors }}
+                    {{ create_form.description }}
+                </div>
+
+                <div class="ticket-form-grid">
+                    <div class="ticket-form-field">
+                        <label for="{{ create_form.priority.id_for_label }}">Priority</label>
+                        {{ create_form.priority.errors }}
+                        {{ create_form.priority }}
+                    </div>
+                    <div class="ticket-form-field">
+                        <label for="{{ create_form.assigned_to.id_for_label }}">Assigned To</label>
+                        {{ create_form.assigned_to.errors }}
+                        {{ create_form.assigned_to }}
+                    </div>
+                </div>
+
+                <div class="ticket-form-actions">
+                    <button class="primary-button" type="submit">Create Ticket</button>
+                </div>
+            </form>
+        </div>
+    </aside>
+</section>
+</section>
+{% endblock %}
+
+{% block page_scripts %}
+    {{ block.super }}
+    <script src="{% static 'intel/tickets.js' %}" defer></script>
+{% endblock %}

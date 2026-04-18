@@ -1,7 +1,8 @@
 # ThreatFoundry
 
-ThreatFoundry is a Django 5 application for ingesting, normalizing, enriching, and triaging indicators of compromise (IOCs).
-   - below are some screenshots of the application:
+ThreatFoundry is a Django application for ingesting, normalizing, enriching, and triaging indicators of compromise (IOCs). It also provides analyst-facing workflows for assistant-driven investigation and ticket tracking.
+
+Screenshots:
 
 <img width="1562" height="720" alt="image" src="https://github.com/user-attachments/assets/8ee8200e-0003-4dd1-a85e-5dfb99c48298" />
 <img width="405" height="501" alt="image" src="https://github.com/user-attachments/assets/a59bfc48-343f-4802-9023-26ee744895db" />
@@ -15,11 +16,12 @@ The project currently provides:
 - Optional enrichment from VirusTotal
 - Server-rendered analyst dashboard and IOC investigation views
 - Analyst assistant UI with local database-backed responses and optional n8n webhook mode
+- Analyst ticket workspace with notes, status/priority tracking, workspace tabs, and popout views
 - Provider and refresh run-history tracking for operations visibility
 
 ## Current Status
 
-This repository is in active staging. Core ingestion, enrichment, dashboard, and refresh orchestration are implemented. Deployment automation (CI/CD, containerization, production infra) is not yet included.
+This repository is in active staging. Core ingestion, enrichment, dashboard, refresh orchestration, analyst assistant, and ticket workspace flows are implemented. Deployment automation (CI/CD, containerization, production infra) is not yet included.
 
 ## Tech Stack
 
@@ -34,6 +36,20 @@ This repository is in active staging. Core ingestion, enrichment, dashboard, and
 
 ```bash
 python -m pip install -r requirements.txt
+```
+
+On Windows, if `python` or `py` resolves to a broken launcher or Microsoft Store alias, use the repo helper:
+
+```powershell
+.\scripts\manage.ps1 check
+.\scripts\manage.ps1 test intel
+```
+
+The helper prefers `THREATFOUNDRY_PYTHON`, then `.venv\Scripts\python.exe`, then known local Python installs. You can also call a virtual environment explicitly:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py check
+.\.venv\Scripts\python.exe manage.py test intel
 ```
 
 2. Create your local env file.
@@ -227,6 +243,9 @@ The command itself appends to the configured logfile, records per-provider outco
 - `/assistant/`: analyst assistant page, requires `analyst` or higher
 - `/api/assistant/chat/`: assistant API endpoint (POST), requires authenticated `analyst` or higher
 - `/api/assistant/context/`: assistant context API endpoint (POST), requires analyst auth or a valid `X-ThreatFoundry-Service-Token`
+- `/tickets/`: analyst ticket workspace, requires `analyst` or higher
+- `/tickets/<pk>/`: ticket detail workspace, requires `analyst` or higher
+- `/tickets/<pk>/notes/`: ticket note submission endpoint (POST), requires `analyst` or higher
 - `/docs/`: in-app docs browser, requires `viewer` or higher
 - `/docs/<doc_name>/`: specific doc page, requires `viewer` or higher
 - `/malware/`: malware directory and family view, requires `viewer` or higher
@@ -257,11 +276,25 @@ Use `INTEL_CHAT_PROVIDER=hybrid` to fall back to local responses if n8n is unava
 - Keep `.env` local and uncommitted.
 - Keep `.env.example` placeholder-only.
 - For non-local use, set `DJANGO_DEBUG=false` and provide a strong `DJANGO_SECRET_KEY`.
-- ThreatFoundry now defaults to authenticated access for analyst-facing routes.
+- ThreatFoundry defaults to authenticated access for analyst-facing routes.
 - Role baseline:
   - `viewer`: read-only access to dashboard, docs, malware, and IOC investigation pages
-  - `analyst`: viewer access plus analyst assistant UI/API
+  - `analyst`: viewer access plus analyst assistant UI/API and ticket workspace
   - `admin`: administrator access and compatibility with analyst/viewer checks
+
+## Ticket Workspace
+
+The ticketing feature adds a lightweight analyst workspace for tracking investigation work without leaving ThreatFoundry.
+
+- Ticket list and creation route: `/tickets/`
+- Ticket detail route: `/tickets/<pk>/`
+- Note submission route: `/tickets/<pk>/notes/`
+- Models: `Ticket` and `TicketNote`
+- Forms: `TicketCreateForm`, `TicketUpdateForm`, and `TicketNoteForm`
+- Views: `intel/views_tickets.py`
+- UI assets: `intel/templates/intel/ticket_list.html`, `intel/templates/intel/ticket_detail.html`, `intel/static/intel/tickets.css`, and `intel/static/intel/tickets.js`
+
+The workspace persists only lightweight UI state in browser storage, such as open ticket IDs/titles, active ticket ID, collapsible panel state, and temporary selected form field values after note submission. Note bodies, tokens, prompts, and privileged backend data are not stored in browser storage.
 
 ## Correlation Engine
 

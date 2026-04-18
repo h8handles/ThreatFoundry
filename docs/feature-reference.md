@@ -9,6 +9,8 @@ This document inventories implemented features in the current repository.
 - Top navigation links:
   - Dashboard
   - Malware Workspaces
+  - AI Analyst
+  - Tickets
   - Documentation
   - Admin
 - Global time-format selector in topbar.
@@ -190,7 +192,48 @@ Features:
 - Browser history integration (`pushState`, `popstate`).
 - Markdown rendering with table and fenced-code support.
 
-### 1.7 Time Display Preferences
+### 1.7 Analyst Assistant (`/assistant/`)
+
+- Authenticated analyst chat UI.
+- Local response mode, n8n webhook mode, and hybrid fallback mode.
+- Context API endpoint for workflow/service integrations.
+- Dedicated popout assistant view that reuses the authenticated session.
+
+### 1.8 Ticket Workspace (`/tickets/`, `/tickets/<pk>/`)
+
+#### Ticket Queue
+
+- Analyst-only ticket list and creation page.
+- Status filter for queue narrowing.
+- Ticket cards show priority, status, assignment, timestamps, and description preview.
+- Popout workspace entry point.
+
+#### Ticket Detail
+
+- Analyst-only ticket record workspace.
+- Three-panel detail layout:
+  - editable ticket/request fields
+  - notes and activity feed
+  - record/requester/supporting metadata
+- Update form supports title, description, status, priority, and assignment.
+- Note form posts to `/tickets/<pk>/notes/` and appends chronological notes.
+- Popout mode preserves the same authenticated backend behavior.
+
+#### Workspace Tabs
+
+- Client-side tab bar for open tickets.
+- Duplicate ticket tabs are avoided by ticket ID.
+- Open tab state is restored after reload.
+- Stored state is limited to ticket IDs, ticket titles, active ticket ID, and UI-only collapse/field state.
+- Note bodies and privileged data are not stored in browser storage.
+
+#### Frontend Safety
+
+- Dynamic tab rendering uses safe DOM APIs such as `createElement`, `textContent`, `classList`, `dataset`, and `replaceChildren`.
+- Ticket note content is rendered by Django templates, not client-side HTML injection.
+- Popout opening uses `noopener,noreferrer`.
+
+### 1.9 Time Display Preferences
 
 - Session key: `intel_time_display_option`.
 - Supported options:
@@ -354,6 +397,14 @@ Tracked metrics include:
 - VirusTotal enrichment merge behavior
 - sample-data command behavior
 - time-display preference behavior
+
+`intel/tests_tickets.py` includes tests for:
+
+- ticket creation and list rendering
+- ticket detail rendering and update flow
+- ticket note submission and chronological display
+- analyst-only ticket access
+- popout query-mode rendering
 
 ## 6) Not-Implemented/Out-of-Scope in This Repo
 

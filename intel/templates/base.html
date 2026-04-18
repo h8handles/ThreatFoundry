@@ -32,6 +32,7 @@
                     <a class="sidebar-nav-link {% if request.resolver_match.url_name == 'dashboard' %}is-active{% endif %}" href="{% url 'intel:dashboard' %}">Dashboard</a>
                     {% if authz.can_use_assistant %}
                         <a class="sidebar-nav-link {% if request.resolver_match.url_name == 'analyst_chat' %}is-active{% endif %}" href="{% url 'intel:analyst_chat' %}">Analyst Assistant</a>
+                        <a class="sidebar-nav-link {% if request.resolver_match.url_name == 'ticket_list' or request.resolver_match.url_name == 'ticket_detail' or request.resolver_match.url_name == 'ticket_note_create' %}is-active{% endif %}" href="{% url 'intel:ticket_list' %}">Tickets</a>
                     {% endif %}
                     <a class="sidebar-nav-link {% if 'malware' in request.path %}is-active{% endif %}" href="{% url 'intel:malware_family' %}">Malware Workspaces</a>
                     <a class="sidebar-nav-link {% if 'documentation' in request.path %}is-active{% endif %}" href="{% url 'intel:documentation' %}">Documentation</a>

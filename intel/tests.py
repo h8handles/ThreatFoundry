@@ -1909,6 +1909,7 @@ class AuthenticationAndAccessControlTests(TestCase):
         logout_response = self.client.post(reverse("logout"))
         self.assertRedirects(logout_response, reverse("login"))
 
+    @override_settings(ENABLE_PUBLIC_REGISTRATION=True)
     def test_register_flow_creates_user_assigns_viewer_group_and_logs_in(self):
         response = self.client.post(
             reverse("register"),

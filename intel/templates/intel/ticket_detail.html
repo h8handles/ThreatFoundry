@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}ThreatFoundry | Ticket {{ ticket.pk }}{% endblock %}
+{% block page_kicker %}Ticket Workspace{% endblock %}
+{% block page_heading %}Ticket Detail{% endblock %}
+{% block page_subtitle %}Update ticket status, ownership, priority, and chronological analyst notes.{% endblock %}
+
+{% block page_header_actions %}
+    {% if is_popout %}
+        <a class="secondary-button" href="{% url 'intel:ticket_detail' ticket.pk %}">Open Full Ticket</a>
+    {% else %}
+        <button class="secondary-button ticket-popout-button" type="button" data-ticket-popout-url="{{ popout_url }}">Pop Out Ticket</button>
+        <a class="secondary-button" href="{% url 'intel:ticket_list' %}">Back To Tickets</a>
+    {% endif %}
+{% endblock %}
+
+{% block extra_head %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'intel/tickets.css' %}">
+{% endblock %}
+
+{% block content %}
+<section class="ticket-page ticket-record-page{% if is_popout %} ticket-page-popout{% endif %}">
+    <section class="ticket-record-header">
+        <div class="ticket-record-title">
+            <p class="eyebrow">Ticket #{{ ticket.pk }}</p>
+            <h2 class="break-anywhere">{{ ticket.title }}</h2>
+            <p class="muted">Service-desk style workspace for triage state, collaboration, notes, and record metadata.</p>
+        </div>
+        <div class="ticket-record-actions">
+            <span class="chip">{{ ticket.get_status_display }}</span>
+            <span class="chip chip-strong">{{ ticket.get_priority_display }}</span>
+            <button class="primary-button" type="submit" form="ticket-update-form">Update Ticket</button>
+        </div>
+    </section>
+
+    <section
+        class="panel ticket-tabs-panel ticket-tab-dock ticket-record-tabs"
+        data-ticket-tabs
+        data-ticket-collapsible
+        data-ticket-collapse-key="workspace-tabs"
+        data-current-ticket-id="{{ ticket.pk }}"
+        data-current-ticket-title="{{ ticket.title }}"
+        data-current-ticket-url="{% url 'intel:ticket_detail' ticket.pk %}"
+        data-popout="{% if is_popout %}1{% else %}0{% endif %}"
+    >
+        <header class="ticket-tabs-header">
+            <div>
+                <p class="eyebrow">Workspace Tabs</p>
+                <h2>Open Tickets</h2>
+            </div>
+            <div class="ticket-panel-actions">
+                <p class="muted">Pinned records stay available across reloads.</p>
+                <button class="ticket-panel-toggle" type="button" aria-expanded="true">Collapse</button>
+            </div>
+        </header>
+        <div class="ticket-panel-body">
+            <div class="ticket-tab-bar" id="ticket-tab-bar"></div>
+        </div>
+    </section>
+
+    <section class="ticket-record-workspace{% if is_popout %} ticket-record-workspace-popout{% endif %}">
+        <section class="panel ticket-record-pane ticket-record-edit-pane" data-ticket-collapsible data-ticket-collapse-key="ticket-detail">
+            <header class="ticket-pane-header">
+                <div>
+                    <p class="eyebrow">Request Fields</p>
+                    <h2>Edit Ticket</h2>
+                </div>
+                <button class="ticket-panel-toggle" type="button" aria-expanded="true">Collapse</button>
+            </header>
+            <div class="ticket-panel-body">
+                <form class="ticket-form ticket-update-form ticket-record-form" id="ticket-update-form" method="post">
+                    {% csrf_token %}
+                    {{ update_form.non_field_errors }}
+                    <section class="ticket-field-card">
+                        <p class="section-title">Core Details</p>
+                        <div class="ticket-form-field ticket-form-field-full">
+                            <label for="{{ update_form.title.id_for_label }}">Short Description</label>
+                            {{ update_form.title.errors }}
+                            {{ update_form.title }}
+                        </div>
+                        <div class="ticket-form-field ticket-form-field-full">
+                            <label for="{{ update_form.description.id_for_label }}">Description</label>
+                            {{ update_form.description.errors }}
+                            {{ update_form.description }}
+                        </div>
+                    </section>
+
+                    <section class="ticket-field-card">
+                        <p class="section-title">Assignment And State</p>
+                        <div class="ticket-form-grid">
+                            <div class="ticket-form-field">
+                                <label for="{{ update_form.status.id_for_label }}">Status</label>
+                                {{ update_form.status.errors }}
+                                {{ update_form.status }}
+                            </div>
+                            <div class="ticket-form-field">
+                                <label for="{{ update_form.priority.id_for_label }}">Priority</label>
+                                {{ update_form.priority.errors }}
+                                {{ update_form.priority }}
+                            </div>
+                            <div class="ticket-form-field ticket-form-field-full">
+                                <label for="{{ update_form.assigned_to.id_for_label }}">Assigned To</label>
+                                {{ update_form.assigned_to.errors }}
+                                {{ update_form.assigned_to }}
+                            </div>
+                        </div>
+                    </section>
+
+                    <div class="ticket-form-actions ticket-form-actions-split">
+                        <a class="secondary-button" href="{% url 'intel:ticket_list' %}">Cancel</a>
+                        <button class="primary-button" type="submit">Update Ticket</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <section class="panel ticket-record-pane ticket-activity-pane" data-ticket-collapsible data-ticket-collapse-key="ticket-notes">
+            <header class="ticket-pane-header">
+                <div>
+                    <p class="eyebrow">Collaboration</p>
+                    <h2>Comments And Activity</h2>
+                </div>
+                <button class="ticket-panel-toggle" type="button" aria-expanded="true">Collapse</button>
+            </header>
+            <div class="ticket-panel-body">
+                <form
+                    class="ticket-form ticket-note-form ticket-comment-composer"
+                    method="post"
+                    action="{% url 'intel:ticket_note_create' ticket.pk %}{% if is_popout %}?popout=1{% endif %}"
+                    data-ticket-note-form
+                    data-ticket-id="{{ ticket.pk }}"
+                >
+                    {% csrf_token %}
+                    {{ note_form.non_field_errors }}
+                    <div class="ticket-note-composer-heading">
+                        <div>
+                            <p class="section-title">New Comment</p>
+                            <span class="muted">Status, priority, and assignee selections are preserved during submit.</span>
+                        </div>
+                    </div>
+                    <div class="ticket-form-field ticket-form-field-full">
+                        <label for="{{ note_form.body.id_for_label }}">Comment</label>
+                        {{ note_form.body.errors }}
+                        {{ note_form.body }}
+                    </div>
+                    <div class="ticket-form-actions">
+                        <button class="primary-button" type="submit">Post Comment</button>
+                    </div>
+                </form>
+
+                <div class="ticket-activity-feed">
+                    {% for note in notes %}
+                        <article class="ticket-activity-item">
+                            <div class="ticket-activity-marker"></div>
+                            <div class="ticket-activity-card">
+                                <header class="ticket-activity-header">
+                                    <strong>{{ note.author.username|default:"Unknown" }}</strong>
+                                    <span>{{ note.created_at|date:"Y-m-d H:i" }}</span>
+                                </header>
+                                <p class="ticket-note-body">{{ note.body|linebreaksbr }}</p>
+                            </div>
+                        </article>
+                    {% empty %}
+                        <div class="context-block ticket-empty-state">
+                            <p class="muted">No activity yet. Add the first comment to start the record history.</p>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </section>
+
+        <aside class="ticket-record-sidebar">
+            <section class="panel ticket-record-pane ticket-info-card" data-ticket-collapsible data-ticket-collapse-key="ticket-record-info">
+                <header class="ticket-pane-header">
+                    <div>
+                        <p class="eyebrow">Record</p>
+                        <h2>Record Information</h2>
+                    </div>
+                    <button class="ticket-panel-toggle" type="button" aria-expanded="true">Collapse</button>
+                </header>
+                <div class="ticket-panel-body">
+                    <dl class="ticket-meta-list">
+                        <div>
+                            <dt>Number</dt>
+                            <dd>#{{ ticket.pk }}</dd>
+                        </div>
+                        <div>
+                            <dt>Status</dt>
+                            <dd>{{ ticket.get_status_display }}</dd>
+                        </div>
+                        <div>
+                            <dt>Priority</dt>
+                            <dd>{{ ticket.get_priority_display }}</dd>
+                        </div>
+                        <div>
+                            <dt>Created</dt>
+                            <dd>{{ ticket.created_at|date:"Y-m-d H:i" }}</dd>
+                        </div>
+                        <div>
+                            <dt>Updated</dt>
+                            <dd>{{ ticket.updated_at|date:"Y-m-d H:i" }}</dd>
+                        </div>
+                    </dl>
+                </div>
+            </section>
+
+            <section class="panel ticket-record-pane ticket-info-card" data-ticket-collapsible data-ticket-collapse-key="ticket-requester-info">
+                <header class="ticket-pane-header">
+                    <div>
+                        <p class="eyebrow">People</p>
+                        <h2>Requester Details</h2>
+                    </div>
+                    <button class="ticket-panel-toggle" type="button" aria-expanded="true">Collapse</button>
+                </header>
+                <div class="ticket-panel-body">
+                    <dl class="ticket-meta-list">
+                        <div>
+                            <dt>Created By</dt>
+                            <dd>{{ ticket.created_by.username|default:"Unknown" }}</dd>
+                        </div>
+                        <div>
+                            <dt>Assigned To</dt>
+                            <dd>{{ ticket.assigned_to.username|default:"Unassigned" }}</dd>
+                        </div>
+                    </dl>
+                </div>
+            </section>
+
+            <section class="panel ticket-record-pane ticket-info-card" data-ticket-collapsible data-ticket-collapse-key="ticket-supporting-info">
+                <header class="ticket-pane-header">
+                    <div>
+                        <p class="eyebrow">Summary</p>
+                        <h2>Supporting Metadata</h2>
+                    </div>
+                    <button class="ticket-panel-toggle" type="button" aria-expanded="true">Collapse</button>
+                </header>
+                <div class="ticket-panel-body">
+                    <div class="ticket-sidebar-summary">
+                        <span class="chip">{{ notes|length }} comments</span>
+                        <span class="chip">{{ ticket.get_status_display }}</span>
+                        <span class="chip chip-strong">{{ ticket.get_priority_display }}</span>
+                    </div>
+                </div>
+            </section>
+        </aside>
+    </section>
+</section>
+{% endblock %}
+
+{% block page_scripts %}
+    {{ block.super }}
+    <script src="{% static 'intel/tickets.js' %}" defer></script>
+{% endblock %}

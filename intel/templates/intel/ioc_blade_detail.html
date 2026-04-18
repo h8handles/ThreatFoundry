@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}ThreatFoundry | IOC Blade{% endblock %}
+{% block page_kicker %}IOC Blade{% endblock %}
+{% block page_heading %}{{ value }}{% endblock %}
+{% block page_subtitle %}Aggregated source coverage for this {{ type_label }} indicator.{% endblock %}
+
+{% block page_header_actions %}
+    <a class="secondary-button" href="{% url 'intel:dashboard' %}">Back To Dashboard</a>
+{% endblock %}
+
+{% block content %}
+<section class="panel detail-hero">
+    <header class="section-header">
+        <div>
+            <p class="eyebrow">Indicator</p>
+            <h2 class="break-anywhere">{{ value }}</h2>
+        </div>
+        <span class="inline-tags">{{ record_count }} record{{ record_count|pluralize }}</span>
+    </header>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <span>Type</span>
+            <strong>{{ type_label }}</strong>
+        </div>
+        <div class="kpi-card">
+            <span>Sources</span>
+            <strong>{{ source_count }}</strong>
+        </div>
+        <div class="kpi-card">
+            <span>Threats</span>
+            <strong>{{ threat_types|join:", " }}</strong>
+        </div>
+        <div class="kpi-card">
+            <span>Families</span>
+            <strong>{{ malware_families|join:", " }}</strong>
+        </div>
+    </div>
+</section>
+
+<section class="panel">
+    <header class="section-header">
+        <div>
+            <p class="eyebrow">Source Correlation</p>
+            <h2>Platform Coverage</h2>
+        </div>
+        <p class="muted">Merged source context, references, tags, and confidence values for this IOC.</p>
+    </header>
+
+    <div class="detail-sections">
+        {% for source in source_details %}
+            <section class="detail-section">
+                <p class="section-title">{{ source.source_label }}</p>
+                <dl class="detail-list detail-list-compact">
+                    <div><dt>Records</dt><dd>{{ source.record_count }}</dd></div>
+                    <div><dt>Record IDs</dt><dd>{{ source.record_ids|join:", "|default:"N/A" }}</dd></div>
+                    <div><dt>Threat Types</dt><dd>{{ source.threat_types|join:", " }}</dd></div>
+                    <div><dt>Malware Families</dt><dd>{{ source.malware_families|join:", " }}</dd></div>
+                    <div><dt>Reporters</dt><dd>{{ source.reporters|join:", " }}</dd></div>
+                    <div><dt>Confidence</dt><dd>{{ source.confidence_levels|join:", "|default:"N/A" }}</dd></div>
+                    <div><dt>Tags</dt><dd>{{ source.tags|join:", "|default:"N/A" }}</dd></div>
+                    <div><dt>Last Seen</dt><dd>{{ source.last_seen|default:"N/A" }}</dd></div>
+                </dl>
+
+                {% if source.references %}
+                    <div class="reference-list">
+                        {% for reference in source.references %}
+                            <a href="{{ reference }}" target="_blank" rel="noopener noreferrer">{{ reference }}</a>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                {% if source.external_links %}
+                    <div class="reference-list">
+                        {% for link in source.external_links %}
+                            <a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }}</a>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </section>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

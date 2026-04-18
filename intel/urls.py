@@ -15,6 +15,7 @@ from intel.views_chat import (
     analyst_chat_context_api_view,
     analyst_chat_view,
 )
+from intel.views_tickets import ticket_detail_view, ticket_list_view, ticket_note_create_view
 from intel.views_whois import whois_lookup_api_view
 
 
@@ -28,6 +29,9 @@ urlpatterns = [
     path("assistant/", analyst_chat_view, name="analyst_chat"),
     path("api/assistant/chat/", analyst_chat_api_view, name="analyst_chat_api"),
     path("api/assistant/context/", analyst_chat_context_api_view, name="analyst_chat_context_api"),
+    path("tickets/", ticket_list_view, name="ticket_list"),
+    path("tickets/<int:pk>/", ticket_detail_view, name="ticket_detail"),
+    path("tickets/<int:pk>/notes/", ticket_note_create_view, name="ticket_note_create"),
     path("api/whois/", whois_lookup_api_view, name="whois_lookup_api"),
     path("docs/", documentation_view, name="documentation"),
     path("docs/<str:doc_name>/", documentation_view, name="documentation_doc"),

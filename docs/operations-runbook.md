@@ -10,6 +10,30 @@ copy .env.example .env
 python manage.py migrate
 ```
 
+### Windows Python Invocation
+
+If `python` or `py` resolves to a broken Windows launcher or app alias, use the repo helper instead of relying on PATH:
+
+```powershell
+.\scripts\manage.ps1 check
+.\scripts\manage.ps1 test intel
+.\scripts\manage.ps1 migrate
+```
+
+The helper resolves Python in this order:
+
+1. `THREATFOUNDRY_PYTHON`
+2. `.venv\Scripts\python.exe`
+3. `venv\Scripts\python.exe`
+4. known local Python installs under `%LOCALAPPDATA%\Python`
+
+For a virtual environment, prefer explicit module invocation for setup:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe manage.py check
+```
+
 ## 1.2 Optional Seed Data
 
 ```bash

@@ -2,7 +2,7 @@
 
 ## One-Sentence Summary
 
-IOC Workbench is a Django threat-intelligence console that ingests, normalizes, enriches, tracks, and visualizes indicators of compromise (IOCs) from multiple providers.
+ThreatFoundry is a Django threat-intelligence console that ingests, normalizes, enriches, tracks, and visualizes indicators of compromise (IOCs) from multiple providers, with analyst assistant and ticket workspace flows for investigation work.
 
 ## Product Scope (Current Implementation)
 
@@ -12,6 +12,7 @@ IOC Workbench is a Django threat-intelligence console that ingests, normalizes, 
 - Normalize heterogeneous payloads into one queryable IOC model.
 - Preserve full source payloads for analyst review and future schema evolution.
 - Provide analyst workflows in both web UI and CLI.
+- Provide analyst ticketing and note-taking for investigation follow-up.
 - Track ingestion/enrichment run outcomes for operational visibility.
 
 ### Supported Data Flows
@@ -37,6 +38,9 @@ IOC Workbench is a Django threat-intelligence console that ingests, normalizes, 
 - `/malware/`: malware family directory, and family detail via query parameter.
 - `/ioc/<pk>/`: IOC detail.
 - `/ioc-blade/?value=...&value_type=...`: aggregated IOC blade detail.
+- `/assistant/`: analyst assistant.
+- `/tickets/`: analyst ticket workspace.
+- `/tickets/<pk>/`: ticket detail workspace.
 - `/docs/` and `/docs/<doc_name>/`: in-app markdown documentation wiki.
 - `/admin/`: Django admin.
 
@@ -92,6 +96,14 @@ IOC Workbench is a Django threat-intelligence console that ingests, normalizes, 
 - Sidebar navigation generated from `*.md` files.
 - AJAX navigation for page loads with browser-history support.
 
+### Ticket Workspace Capabilities
+
+- Ticket list and creation workspace for analyst users.
+- Ticket detail workspace with editable status, priority, assignment, title, and description.
+- Ticket notes displayed as an activity feed.
+- Popout detail/workspace mode that reuses the authenticated Django session.
+- Client-side workspace tabs persist only minimal UI metadata, not note content or tokens.
+
 ### Time Display Preferences
 
 - Session-backed time display mode switch:
@@ -146,6 +158,8 @@ IOC Workbench is a Django threat-intelligence console that ingests, normalizes, 
 - `ProviderRun`: per-command provider execution record.
 - `IngestionRun`: top-level refresh run summary.
 - `ProviderRunDetail`: per-provider detail rows attached to an `IngestionRun`.
+- `Ticket`: analyst-created investigation ticket.
+- `TicketNote`: chronological notes attached to a ticket.
 
 ### Storage Modes
 
