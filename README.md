@@ -4,10 +4,7 @@ ThreatFoundry is a Django application for ingesting, normalizing, enriching, and
 
 Screenshots:
 
-<img width="1562" height="720" alt="image" src="https://github.com/user-attachments/assets/8ee8200e-0003-4dd1-a85e-5dfb99c48298" />
-<img width="405" height="501" alt="image" src="https://github.com/user-attachments/assets/a59bfc48-343f-4802-9023-26ee744895db" />
-<img width="346" height="771" alt="image" src="https://github.com/user-attachments/assets/04aa4209-3ef4-41f3-ab7b-c05f8b0f780d" />
-<img width="1633" height="847" alt="image" src="https://github.com/user-attachments/assets/5d90df59-3d06-45df-865b-005141ef3820" />
+
 
 ## Overview
 
