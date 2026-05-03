@@ -1,46 +1,53 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}ThreatFoundry | Sign In{% endblock %}
 
 {% block content %}
-<section class="auth-layout">
-    <div class="detail-main">
-        <section class="panel hero auth-card">
-            <div class="panel-header panel-header-tight hero-header">
-                <div class="hero-copy">
-                    <p class="eyebrow">Threat Intelligence Console</p>
-                    <h1><span class="brand-muted">Threat</span><span class="brand-accent">Foundry</span></h1>
-                    <p class="hero-subtitle">Sign in to access the analyst workspace</p>
-                </div>
-            </div>
+<section class="auth-shell">
+    <div class="auth-stage">
+        <section class="auth-hero">
+            <a class="auth-mark" href="{% url 'intel:dashboard' %}">
+                <img src="{% static 'intel/threatfoundry-mark.svg' %}" alt="ThreatFoundry">
+            </a>
+            <p class="eyebrow">Threat Intelligence Console</p>
+            <h1 class="auth-title">
+                <span class="brand-muted">Threat</span><span class="brand-accent">Foundry</span>
+            </h1>
+            <p class="auth-tagline">Sign in to triage indicators, correlate clusters, and run analyst investigations.</p>
+            <ul class="auth-feature-list">
+                <li><span class="auth-feature-bullet"></span>Multi-source IOC ingestion and enrichment</li>
+                <li><span class="auth-feature-bullet"></span>Analyst assistant with scoped database context</li>
+                <li><span class="auth-feature-bullet"></span>Ticket workspace for ongoing investigations</li>
+            </ul>
         </section>
 
         <section class="panel auth-card">
-            <div class="panel-header">
+            <header class="section-header">
                 <div>
                     <p class="eyebrow">Authentication</p>
-                    <h2>Login</h2>
+                    <h2>Sign In</h2>
                 </div>
-            </div>
-            <form method="post" class="filter-form auth-form">
+            </header>
+            <form method="post" class="auth-form">
                 {% csrf_token %}
                 {% if form.non_field_errors %}
-                    <div class="empty-state">{{ form.non_field_errors }}</div>
+                    <div class="auth-error">{{ form.non_field_errors }}</div>
                 {% endif %}
-                <label>
+                <label class="auth-field">
                     <span>Username</span>
-                    <input type="text" name="username" autofocus required>
+                    <input type="text" name="username" autofocus required autocomplete="username">
                 </label>
-                <label>
+                <label class="auth-field">
                     <span>Password</span>
-                    <input type="password" name="password" required>
+                    <input type="password" name="password" required autocomplete="current-password">
                 </label>
                 {% if next %}
                     <input type="hidden" name="next" value="{{ next }}">
                 {% endif %}
-                <button class="primary-button" type="submit">Sign in</button>
+                <button class="primary-button auth-submit" type="submit">Sign in</button>
             </form>
-            <p class="muted auth-support-copy">Need an account? <a href="{% url 'register' %}">Register</a></p>
+            <p class="auth-support-copy">Need an account? <a href="{% url 'register' %}">Register</a></p>
         </section>
     </div>
 </section>

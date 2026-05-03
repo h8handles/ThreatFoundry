@@ -3,20 +3,20 @@
 {% block title %}ThreatFoundry | Access Denied{% endblock %}
 
 {% block content %}
-<section class="detail-layout">
-    <div class="detail-main">
-        <section class="panel hero">
-            <div class="panel-header panel-header-tight hero-header">
-                <div class="hero-copy">
-                    <p class="eyebrow">Authorization</p>
-                    <h1>Access denied</h1>
-                    <p class="hero-subtitle">Your account does not have the required role for this page.</p>
-                </div>
-            </div>
-            <div class="hero-actions">
-                <a class="ghost-link" href="{% url 'intel:dashboard' %}">Return to dashboard</a>
-            </div>
-        </section>
-    </div>
+<section class="status-shell">
+    <section class="panel status-card">
+        <div class="status-glyph" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+        </div>
+        <p class="eyebrow">403 — Authorization</p>
+        <h1>Access denied</h1>
+        <p class="muted">Your account does not have the required role for this page. Contact a workspace administrator to request elevated access.</p>
+        <div class="status-actions">
+            <a class="primary-button" href="{% url 'intel:dashboard' %}">Return to dashboard</a>
+        </div>
+    </section>
 </section>
 {% endblock %}
