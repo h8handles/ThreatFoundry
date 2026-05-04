@@ -6,19 +6,19 @@ Screenshots:
 
 | Dashboard | Tickets |
 | --- | --- |
-| ![Dashboard](docs/ui-screenshots/02-dashboard.png) | ![Tickets](docs/ui-screenshots/03-tickets-list.png) |
+| ![Dashboard](screenshot-dashboard.png) | ![Tickets](screenshot-tickets.png) |
 
 | Analyst Assistant | Malware Workspaces |
 | --- | --- |
-| ![Analyst Assistant](docs/ui-screenshots/04-assistant.png) | ![Malware Workspaces](docs/ui-screenshots/05-malware.png) |
+| ![Analyst Assistant](screenshot-assistant.png) | ![Malware Workspaces](screenshot-malware.png) |
 
 | IOC Detail | Ticket Detail |
 | --- | --- |
-| ![IOC Detail](docs/ui-screenshots/07-ioc-detail.png) | ![Ticket Detail](docs/ui-screenshots/08-ticket-detail.png) |
+| ![IOC Detail](screenshot-ioc-detail.png) | ![Ticket Detail](screenshot-ticket-detail.png) |
 
 | Documentation | Sign In |
 | --- | --- |
-| ![Documentation](docs/ui-screenshots/06-docs.png) | ![Sign In](docs/ui-screenshots/01-login.png) |
+| ![Documentation](screenshot-docs.png) | ![Sign In](screenshot-login.png) |
 
 
 ## Overview
