@@ -5,7 +5,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}ThreatFoundry{% endblock %}</title>
-    <meta name="theme-color" content="#081528">
+    <meta name="theme-color" content="#05070d">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
     <link rel="stylesheet" href="{% static 'intel/dashboard.css' %}">
     <link rel="icon" type="image/svg+xml" href="{% static 'intel/threatfoundry-mark.svg' %}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
@@ -24,25 +27,55 @@
                     <img class="sidebar-brand-mark" src="{% static 'intel/threatfoundry-mark.svg' %}" alt="ThreatFoundry logo">
                     <span class="sidebar-brand-text">
                         <span class="sidebar-brand-title">ThreatFoundry</span>
-                        <span class="sidebar-brand-subtitle">Threat Intelligence Console</span>
+                        <span class="sidebar-brand-subtitle">Intel Console</span>
                     </span>
                 </a>
 
-                <nav class="sidebar-nav">
-                    <a class="sidebar-nav-link {% if request.resolver_match.url_name == 'dashboard' %}is-active{% endif %}" href="{% url 'intel:dashboard' %}">Dashboard</a>
+                <nav class="sidebar-nav" aria-label="Primary">
+                    <a class="sidebar-nav-link {% if request.resolver_match.url_name == 'dashboard' %}is-active{% endif %}" href="{% url 'intel:dashboard' %}">
+                        <span class="sidebar-nav-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+                        </span>
+                        <span>Dashboard</span>
+                    </a>
                     {% if authz.can_use_assistant %}
-                        <a class="sidebar-nav-link {% if request.resolver_match.url_name == 'analyst_chat' %}is-active{% endif %}" href="{% url 'intel:analyst_chat' %}">Analyst Assistant</a>
-                        <a class="sidebar-nav-link {% if request.resolver_match.url_name == 'ticket_list' or request.resolver_match.url_name == 'ticket_detail' or request.resolver_match.url_name == 'ticket_note_create' %}is-active{% endif %}" href="{% url 'intel:ticket_list' %}">Tickets</a>
+                        <a class="sidebar-nav-link {% if request.resolver_match.url_name == 'analyst_chat' %}is-active{% endif %}" href="{% url 'intel:analyst_chat' %}">
+                            <span class="sidebar-nav-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><circle cx="9" cy="10" r="1"/><circle cx="13" cy="10" r="1"/><circle cx="17" cy="10" r="1"/></svg>
+                            </span>
+                            <span>Analyst Assistant</span>
+                        </a>
+                        <a class="sidebar-nav-link {% if request.resolver_match.url_name == 'ticket_list' or request.resolver_match.url_name == 'ticket_detail' or request.resolver_match.url_name == 'ticket_note_create' %}is-active{% endif %}" href="{% url 'intel:ticket_list' %}">
+                            <span class="sidebar-nav-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
+                            </span>
+                            <span>Tickets</span>
+                        </a>
                     {% endif %}
-                    <a class="sidebar-nav-link {% if 'malware' in request.path %}is-active{% endif %}" href="{% url 'intel:malware_family' %}">Malware Workspaces</a>
-                    <a class="sidebar-nav-link {% if 'documentation' in request.path %}is-active{% endif %}" href="{% url 'intel:documentation' %}">Documentation</a>
+                    <a class="sidebar-nav-link {% if 'malware' in request.path %}is-active{% endif %}" href="{% url 'intel:malware_family' %}">
+                        <span class="sidebar-nav-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+                        </span>
+                        <span>Malware Workspaces</span>
+                    </a>
+                    <a class="sidebar-nav-link {% if 'documentation' in request.path %}is-active{% endif %}" href="{% url 'intel:documentation' %}">
+                        <span class="sidebar-nav-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4a2 2 0 0 1 2-2h9l5 5v15a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><polyline points="14 2 14 9 21 9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg>
+                        </span>
+                        <span>Documentation</span>
+                    </a>
                     {% if authz.can_administer %}
-                        <a class="sidebar-nav-link" href="/admin/">Admin</a>
+                        <a class="sidebar-nav-link" href="/admin/">
+                            <span class="sidebar-nav-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 4.96l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                            </span>
+                            <span>Admin</span>
+                        </a>
                     {% endif %}
                 </nav>
 
                 <div class="sidebar-meta">
-                    <p class="sidebar-meta-label">Access</p>
+                    <p class="sidebar-meta-label">Signed in</p>
                     <p class="sidebar-meta-value">{{ request.user.username }}</p>
                     <p class="sidebar-meta-value">{{ authz.role_label }}</p>
                 </div>
@@ -82,7 +115,7 @@
                     <img class="sidebar-brand-mark" src="{% static 'intel/threatfoundry-mark.svg' %}" alt="ThreatFoundry logo">
                     <span class="sidebar-brand-text">
                         <span class="sidebar-brand-title">ThreatFoundry</span>
-                        <span class="sidebar-brand-subtitle">Threat Intelligence Console</span>
+                        <span class="sidebar-brand-subtitle">Intel Console</span>
                     </span>
                 </a>
                 <a class="secondary-button" href="{% url 'login' %}">Login</a>

@@ -1,47 +1,54 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}ThreatFoundry | Register{% endblock %}
 
 {% block content %}
-<section class="auth-layout">
-    <div class="detail-main">
-        <section class="panel hero auth-card">
-            <div class="panel-header panel-header-tight hero-header">
-                <div class="hero-copy">
-                    <p class="eyebrow">Threat Intelligence Console</p>
-                    <h1><span class="brand-muted">Threat</span><span class="brand-accent">Foundry</span></h1>
-                    <p class="hero-subtitle">Create a local account for read-only analyst workspace access</p>
-                </div>
-            </div>
+<section class="auth-shell">
+    <div class="auth-stage">
+        <section class="auth-hero">
+            <a class="auth-mark" href="{% url 'intel:dashboard' %}">
+                <img src="{% static 'intel/threatfoundry-mark.svg' %}" alt="ThreatFoundry">
+            </a>
+            <p class="eyebrow">Threat Intelligence Console</p>
+            <h1 class="auth-title">
+                <span class="brand-muted">Threat</span><span class="brand-accent">Foundry</span>
+            </h1>
+            <p class="auth-tagline">Create a local account for read-only analyst workspace access. An administrator can elevate your role after first sign-in.</p>
+            <ul class="auth-feature-list">
+                <li><span class="auth-feature-bullet"></span>Self-service registration defaults to viewer role</li>
+                <li><span class="auth-feature-bullet"></span>Read-only dashboard, malware, and IOC views</li>
+                <li><span class="auth-feature-bullet"></span>Analyst tools unlock once an admin assigns roles</li>
+            </ul>
         </section>
 
         <section class="panel auth-card">
-            <div class="panel-header">
+            <header class="section-header">
                 <div>
                     <p class="eyebrow">Authentication</p>
-                    <h2>Register</h2>
+                    <h2>Create Account</h2>
                 </div>
-            </div>
-            <form method="post" class="filter-form auth-form">
+            </header>
+            <form method="post" class="auth-form">
                 {% csrf_token %}
                 {% if form.non_field_errors %}
-                    <div class="empty-state">{{ form.non_field_errors }}</div>
+                    <div class="auth-error">{{ form.non_field_errors }}</div>
                 {% endif %}
                 {% for field in form %}
-                    <label>
+                    <label class="auth-field">
                         <span>{{ field.label }}</span>
                         {{ field }}
                         {% if field.errors %}
-                            <span class="inline-tags">{{ field.errors|join:", " }}</span>
+                            <span class="auth-field-error">{{ field.errors|join:", " }}</span>
                         {% endif %}
                         {% if field.help_text %}
-                            <span class="muted">{{ field.help_text|safe }}</span>
+                            <span class="auth-field-help">{{ field.help_text|safe }}</span>
                         {% endif %}
                     </label>
                 {% endfor %}
-                <button class="primary-button" type="submit">Create account</button>
+                <button class="primary-button auth-submit" type="submit">Create account</button>
             </form>
-            <p class="muted auth-support-copy">Already have an account? <a href="{% url 'login' %}">Sign in</a></p>
+            <p class="auth-support-copy">Already have an account? <a href="{% url 'login' %}">Sign in</a></p>
         </section>
     </div>
 </section>
