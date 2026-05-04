@@ -4,6 +4,21 @@ ThreatFoundry is a Django application for ingesting, normalizing, enriching, and
 
 Screenshots:
 
+| Dashboard | Tickets |
+| --- | --- |
+| ![Dashboard](screenshot-dashboard.png) | ![Tickets](screenshot-tickets.png) |
+
+| Analyst Assistant | Malware Workspaces |
+| --- | --- |
+| ![Analyst Assistant](screenshot-assistant.png) | ![Malware Workspaces](screenshot-malware.png) |
+
+| IOC Detail | Ticket Detail |
+| --- | --- |
+| ![IOC Detail](screenshot-ioc-detail.png) | ![Ticket Detail](screenshot-ticket-detail.png) |
+
+| Documentation | Sign In |
+| --- | --- |
+| ![Documentation](screenshot-docs.png) | ![Sign In](screenshot-login.png) |
 
 
 ## Overview
